@@ -8,6 +8,9 @@ from typer.testing import CliRunner
 from hrm import __version__
 from hrm.cli import app
 from hrm.core.config import get_settings
+from hrm.core.errors import LLMError
+from hrm.rag.models import Citation, PolicyAnswer
+from hrm.rag.service import AnswerResult
 from tests.fakes import FakeEmbedder, FakeReranker
 
 runner = CliRunner()
@@ -100,3 +103,54 @@ def test_search_rejects_unknown_category(offline_index: None) -> None:
 
     assert result.exit_code == 1
     assert "unknown category" in result.output
+
+
+def test_ask_prints_the_answer_and_its_sources(
+    offline_index: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner.invoke(app, ["ingest"])
+    citation = Citation(
+        number=1,
+        chunk_id="time-off-policy:pto-ground-rules:0",
+        doc_id="time-off-policy",
+        section_path=("Paid time off (PTO) policy", "PTO ground rules"),
+    )
+    answer = PolicyAnswer(
+        answer="Give 5 business days notice [1].", found=True, citations=[citation]
+    )
+
+    class FakeService:
+        def answer(self, question: str) -> AnswerResult:
+            return AnswerResult(answer=answer, context=[])
+
+    monkeypatch.setattr("hrm.cli.RAGService.from_settings", lambda _s: FakeService())
+
+    result = runner.invoke(app, ["ask", "How much notice?"])
+
+    assert result.exit_code == 0, result.output
+    assert "Give 5 business days notice [1]." in result.stdout
+    assert "[1] time-off-policy > PTO ground rules" in result.stdout
+
+
+def test_ask_reports_llm_errors_cleanly(
+    offline_index: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner.invoke(app, ["ingest"])
+
+    class FailingService:
+        def answer(self, question: str) -> AnswerResult:
+            raise LLMError("Groq is down")
+
+    monkeypatch.setattr("hrm.cli.RAGService.from_settings", lambda _s: FailingService())
+
+    result = runner.invoke(app, ["ask", "anything"])
+
+    assert result.exit_code == 1
+    assert "Groq is down" in result.output
+
+
+def test_ask_on_empty_index_explains_what_to_do(offline_index: None) -> None:
+    result = runner.invoke(app, ["ask", "anything"])
+
+    assert result.exit_code == 1
+    assert "hrm ingest" in result.output

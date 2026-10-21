@@ -17,6 +17,7 @@ from hrm.rag.ingest import Ingestor
 from hrm.rag.loading import load_documents
 from hrm.rag.models import Category
 from hrm.rag.retrieval.factory import build_retriever
+from hrm.rag.service import RAGService
 from hrm.rag.vectorstore import ChromaStore
 
 log = get_logger(__name__)
@@ -159,3 +160,24 @@ def search(
         snippet = " ".join(r.chunk.text.split())[:160]
         typer.echo(f"{r.rank:>2}. {r.score:.3f}  {r.chunk.doc_id}  |  {section}")
         typer.echo(f"     {snippet}...\n")
+
+
+@app.command()
+def ask(question: str = typer.Argument(..., help="Your HR policy question.")) -> None:
+    """Answer a policy question with citations (retrieval + Groq answer model)."""
+    settings = get_settings()
+    if ChromaStore.from_settings(settings).count() == 0:
+        typer.echo("The index is empty. Run `hrm ingest` first.", err=True)
+        raise typer.Exit(code=1)
+    try:
+        result = RAGService.from_settings(settings).answer(question)
+    except HRMError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(result.answer.answer)
+    if result.answer.citations:
+        typer.echo("\nSources:")
+        for c in result.answer.citations:
+            section = " > ".join(c.section_path[1:]) or "(introduction)"
+            typer.echo(f"  [{c.number}] {c.doc_id} > {section}")

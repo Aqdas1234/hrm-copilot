@@ -102,6 +102,7 @@ def test_ask_returns_answer_and_citations(client: TestClient, service: FakeServi
         }
     ]
     assert service.ask_calls == [("How much notice?", None)]
+    assert set(body["timings"]) == {"retrieve_ms", "generate_ms", "total_ms"}
 
 
 def test_not_covered_is_a_normal_200_answer() -> None:

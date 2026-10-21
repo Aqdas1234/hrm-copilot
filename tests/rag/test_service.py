@@ -1,3 +1,8 @@
+import json
+
+import pytest
+
+from hrm.core.logging import configure_logging
 from hrm.rag.generation import not_covered
 from hrm.rag.models import Category, Chunk, Citation, PolicyAnswer, RetrievedChunk
 from hrm.rag.service import RAGService
@@ -97,3 +102,22 @@ def test_search_uses_top_k_unless_k_is_given() -> None:
     assert len(service.search("q")) == 3
     assert len(service.search("q", k=7, category="benefits")) == 7
     assert retriever.calls[-1] == ("q", 7, "benefits")
+
+
+def test_answer_reports_step_timings_and_logs_one_summary_line(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    configure_logging("INFO", "json")
+    service, _, _ = make_service(top_k=3)
+
+    result = service.answer("How much notice?")
+
+    t = result.timings
+    assert t.total_ms >= t.retrieve_ms + t.generate_ms - 1  # rounding
+    records = [json.loads(line) for line in capsys.readouterr().err.splitlines() if line]
+    [summary] = [r for r in records if r["event"] == "rag.answer"]
+    assert summary["found"] is True
+    assert summary["citations"] == 1
+    assert summary["context_chunks"] == 3
+    assert summary["top_score"] == -1.0
+    assert {"retrieve_ms", "generate_ms", "total_ms"} <= summary.keys()

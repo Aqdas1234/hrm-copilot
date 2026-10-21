@@ -40,10 +40,17 @@ class CitationOut(BaseModel):
     chunk_id: str
 
 
+class Timings(BaseModel):
+    retrieve_ms: int
+    generate_ms: int
+    total_ms: int
+
+
 class AskResponse(BaseModel):
     answer: str
     found: bool  # False: the policies do not cover the question
     citations: list[CitationOut]
+    timings: Timings
 
 
 class HealthResponse(BaseModel):

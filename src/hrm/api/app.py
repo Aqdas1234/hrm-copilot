@@ -29,6 +29,7 @@ from hrm.api.schemas import (
     SearchHit,
     SearchRequest,
     SearchResponse,
+    Timings,
 )
 from hrm.core.config import get_settings
 from hrm.core.errors import ConfigurationError, HRMError, LLMError
@@ -152,6 +153,11 @@ def create_app(service: PolicyService | None = None) -> FastAPI:
                 )
                 for c in result.answer.citations
             ],
+            timings=Timings(
+                retrieve_ms=result.timings.retrieve_ms,
+                generate_ms=result.timings.generate_ms,
+                total_ms=result.timings.total_ms,
+            ),
         )
 
     return app

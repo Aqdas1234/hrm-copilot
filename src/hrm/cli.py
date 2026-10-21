@@ -4,6 +4,7 @@ import time
 from typing import get_args
 
 import typer
+import uvicorn
 
 from hrm import __version__
 from hrm.core.config import get_settings
@@ -181,3 +182,12 @@ def ask(question: str = typer.Argument(..., help="Your HR policy question.")) ->
         for c in result.answer.citations:
             section = " > ".join(c.section_path[1:]) or "(introduction)"
             typer.echo(f"  [{c.number}] {c.doc_id} > {section}")
+
+
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", help="Interface to listen on."),
+    port: int = typer.Option(8000, help="Port to listen on."),
+) -> None:
+    """Run the HTTP API (docs at http://HOST:PORT/docs)."""
+    uvicorn.run("hrm.api.app:create_app", factory=True, host=host, port=port, log_config=None)

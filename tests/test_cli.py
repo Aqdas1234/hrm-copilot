@@ -154,3 +154,16 @@ def test_ask_on_empty_index_explains_what_to_do(offline_index: None) -> None:
 
     assert result.exit_code == 1
     assert "hrm ingest" in result.output
+
+
+def test_serve_starts_uvicorn_with_the_app_factory(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, dict[str, object]]] = []
+    monkeypatch.setattr("hrm.cli.uvicorn.run", lambda app, **kw: calls.append((app, kw)))
+
+    result = runner.invoke(app, ["serve", "--port", "9001"])
+
+    assert result.exit_code == 0, result.output
+    [(target, options)] = calls
+    assert target == "hrm.api.app:create_app"
+    assert options["factory"] is True
+    assert options["port"] == 9001

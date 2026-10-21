@@ -1,0 +1,29 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+build/
+dist/
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Generated data (rebuilt by `hrm ingest`)
+chroma/
+data/index/
+*.db
+*.sqlite3
+
+# Frontend / OS / editors
+node_modules/
+.DS_Store
+.idea/
+.vscode/

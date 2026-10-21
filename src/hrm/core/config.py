@@ -53,10 +53,11 @@ class Settings(BaseSettings):
     chunk_min_size: int = Field(default=50, ge=0)  # smaller sections merge into a neighbor
 
     # --- Retrieval ---
-    retrieval_mode: Literal["dense", "bm25", "hybrid"] = "dense"
+    # Defaults chosen by measurement: see "Retrieval design" in README.md and evals/RESULTS.md.
+    retrieval_mode: Literal["dense", "bm25", "hybrid"] = "hybrid"
     rrf_k: int = Field(default=60, gt=0)  # Reciprocal Rank Fusion constant (hybrid mode)
     retrieve_k: int = Field(default=20, gt=0)  # candidates fetched before fusion/reranking
-    rerank: bool = False  # re-score the retrieve_k candidates with a cross-encoder
+    rerank: bool = True  # re-score the retrieve_k candidates with a cross-encoder
     reranker_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
     top_k: int = Field(default=5, gt=0)  # chunks passed to the answer model
 

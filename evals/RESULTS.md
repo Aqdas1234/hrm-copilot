@@ -17,4 +17,5 @@ The last column compares the mean top-1 score of answerable vs. unanswerable que
 | 2026-10-21 | hybrid + rerank | hybrid + rerank | rerank ms-marco-MiniLM-L-6-v2 top-20, RRF k=60, 20 candidates each, bge-small-en-v1.5, query prefix on, chunks 400/60/50 | 0.82 | 0.97 | 0.894 | 0.95 | 875 | 2.010 / -8.434 |
 | 2026-10-21 | dense + rerank | dense + rerank | rerank ms-marco-MiniLM-L-6-v2 top-20, bge-small-en-v1.5, query prefix on, chunks 400/60/50 | 0.82 | 0.95 | 0.881 | 0.94 | 921 | 2.010 / -8.738 |
 | 2026-10-21 | hybrid + rerank top-10 | hybrid + rerank | rerank ms-marco-MiniLM-L-6-v2 top-10, RRF k=60, 10 candidates each, bge-small-en-v1.5, query prefix on, chunks 400/60/50 | 0.80 | 0.95 | 0.869 | 0.93 | 401 | 2.003 / -8.441 |
+| 2026-10-21 | final default (hybrid + rerank top-20) | hybrid + rerank | rerank ms-marco-MiniLM-L-6-v2 top-20, RRF k=60, 20 candidates each, bge-small-en-v1.5, query prefix on, chunks 400/60/50 | 0.82 | 0.97 | 0.894 | 0.95 | 889 | 2.010 / -8.434 |
 <!-- retrieval rows: new rows are inserted above this line -->

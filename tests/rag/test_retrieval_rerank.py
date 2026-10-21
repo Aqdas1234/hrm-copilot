@@ -87,7 +87,7 @@ def test_factory_wraps_the_base_retriever_only_when_rerank_is_on(
     store, embedder = InMemoryVectorStore(), FakeEmbedder()
     store.upsert([GIFTS], embedder.embed_documents([GIFTS.embedding_text]))
 
-    plain = build_retriever(make_settings(retrieval_mode="hybrid"), embedder, store)
+    plain = build_retriever(make_settings(retrieval_mode="hybrid", rerank=False), embedder, store)
     reranked = build_retriever(
         make_settings(retrieval_mode="hybrid", rerank=True), embedder, store, FakeReranker()
     )

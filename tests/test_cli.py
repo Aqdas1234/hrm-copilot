@@ -8,7 +8,7 @@ from typer.testing import CliRunner
 from hrm import __version__
 from hrm.cli import app
 from hrm.core.config import get_settings
-from tests.fakes import FakeEmbedder
+from tests.fakes import FakeEmbedder, FakeReranker
 
 runner = CliRunner()
 
@@ -56,10 +56,13 @@ def test_ingest_twice_embeds_nothing_the_second_time(
 
 @pytest.fixture
 def offline_index(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[None]:
-    """A real Chroma index in a temp folder, built with the fake embedder."""
+    """A real Chroma index in a temp folder, built with the fake embedder and fake reranker."""
     monkeypatch.setenv("HRM_INDEX_DIR", str(tmp_path))
     get_settings.cache_clear()
     monkeypatch.setattr("hrm.cli.FastEmbedEmbedder.from_settings", lambda _s: FakeEmbedder())
+    monkeypatch.setattr(
+        "hrm.rag.retrieval.factory.FastEmbedReranker.from_settings", lambda _s: FakeReranker()
+    )
     monkeypatch.setattr("hrm.cli.tiktoken_counter", lambda: lambda text: len(text.split()))
     yield
     get_settings.cache_clear()

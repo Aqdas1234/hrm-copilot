@@ -99,6 +99,7 @@ def test_factory_builds_the_configured_retriever(
     embedder = FakeEmbedder()
     store.upsert([make_chunk("a")], embedder.embed_documents(["text a"]))
 
-    retriever = build_retriever(make_settings(retrieval_mode=mode), embedder, store)
+    settings = make_settings(retrieval_mode=mode, rerank=False)
+    retriever = build_retriever(settings, embedder, store)
 
     assert isinstance(retriever, expected_type)

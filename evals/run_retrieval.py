@@ -4,6 +4,7 @@ Uses the real index (run `hrm ingest` first) and the real embedding model.
 
     .venv/bin/python evals/run_retrieval.py --label "dense baseline"
     .venv/bin/python evals/run_retrieval.py --retriever hybrid --label "hybrid RRF"
+    .venv/bin/python evals/run_retrieval.py --retriever hybrid --rerank --label "hybrid + rerank"
     .venv/bin/python evals/run_retrieval.py --no-record      # just print the report
 """
 
@@ -41,6 +42,9 @@ def main() -> None:
         choices=["dense", "bm25", "hybrid"],
         help="Overrides HRM_RETRIEVAL_MODE for this run.",
     )
+    parser.add_argument(
+        "--rerank", action="store_true", help="Rerank candidates with the cross-encoder."
+    )
     parser.add_argument("--label", default="", help="Short name for this run in RESULTS.md.")
     parser.add_argument("--no-record", action="store_true", help="Do not write RESULTS.md.")
     args = parser.parse_args()
@@ -48,7 +52,9 @@ def main() -> None:
     settings = get_settings()
     if args.retriever:
         settings = settings.model_copy(update={"retrieval_mode": args.retriever})
-    mode = settings.retrieval_mode
+    if args.rerank:
+        settings = settings.model_copy(update={"rerank": True})
+    mode = settings.retrieval_mode + (" + rerank" if settings.rerank else "")
     configure_logging("WARNING", settings.log_format)  # keep per-query logs out of the report
     _check_index_matches_settings(settings.index_dir / "manifest.json", settings.embedding_model)
     retriever = build_retriever(
@@ -75,7 +81,11 @@ def main() -> None:
         "hybrid": f"RRF k={settings.rrf_k}, {settings.retrieve_k} candidates each, "
         f"{embedding}, {chunks}",
     }
-    config = configs[mode]
+    config = configs[settings.retrieval_mode]
+    if settings.rerank:
+        config = (
+            f"rerank {settings.reranker_model.split('/')[-1]} top-{settings.retrieve_k}, {config}"
+        )
     if not args.no_record:
         _record(
             results,

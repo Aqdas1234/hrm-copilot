@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     retrieval_mode: Literal["dense", "bm25", "hybrid"] = "dense"
     rrf_k: int = Field(default=60, gt=0)  # Reciprocal Rank Fusion constant (hybrid mode)
     retrieve_k: int = Field(default=20, gt=0)  # candidates fetched before fusion/reranking
+    rerank: bool = False  # re-score the retrieve_k candidates with a cross-encoder
+    reranker_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
     top_k: int = Field(default=5, gt=0)  # chunks passed to the answer model
 
     # --- Logging ---

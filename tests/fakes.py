@@ -83,3 +83,16 @@ class InMemoryVectorStore:
 
     def all_chunks(self) -> list[Chunk]:
         return sorted((chunk for chunk, _ in self._rows.values()), key=lambda c: c.chunk_id)
+
+
+class FakeReranker:
+    """Scores a text by how many distinct query words it contains (stand-in for a
+    cross-encoder). Records each call so tests can check what was reranked."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, list[str]]] = []
+
+    def score(self, query: str, texts: Sequence[str]) -> list[float]:
+        self.calls.append((query, list(texts)))
+        words = set(_WORD.findall(query.lower()))
+        return [float(len(words & set(_WORD.findall(t.lower())))) for t in texts]

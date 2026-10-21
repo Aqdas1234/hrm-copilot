@@ -7,10 +7,29 @@ from hrm.rag.retrieval import Retriever
 from hrm.rag.retrieval.bm25 import BM25Retriever
 from hrm.rag.retrieval.dense import DenseRetriever
 from hrm.rag.retrieval.hybrid import HybridRetriever
+from hrm.rag.retrieval.rerank import FastEmbedReranker, Reranker, RerankingRetriever
 from hrm.rag.vectorstore import VectorStore
 
 
-def build_retriever(settings: Settings, embedder: Embedder, store: VectorStore) -> Retriever:
+def build_retriever(
+    settings: Settings,
+    embedder: Embedder,
+    store: VectorStore,
+    reranker: Reranker | None = None,
+) -> Retriever:
+    """The retriever for settings.retrieval_mode, wrapped in a reranker if settings.rerank.
+    Pass `reranker` to supply one (e.g. a fake in tests); otherwise the real model is loaded."""
+    base = _base_retriever(settings, embedder, store)
+    if not settings.rerank:
+        return base
+    return RerankingRetriever(
+        base,
+        reranker or FastEmbedReranker.from_settings(settings),
+        candidates=settings.retrieve_k,
+    )
+
+
+def _base_retriever(settings: Settings, embedder: Embedder, store: VectorStore) -> Retriever:
     mode = settings.retrieval_mode
     if mode == "dense":
         return DenseRetriever(embedder, store)

@@ -9,7 +9,8 @@ __pycache__/
 build/
 dist/
 
-# Tool caches
+# Tool caches (and downloaded models)
+.cache/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

@@ -39,6 +39,13 @@ class Settings(BaseSettings):
     # --- Paths ---
     docs_dir: Path = PROJECT_ROOT / "data" / "docs"
     index_dir: Path = PROJECT_ROOT / "data" / "index"
+    model_cache_dir: Path = PROJECT_ROOT / ".cache" / "models"  # downloaded local models
+
+    # --- Embeddings ---
+    embedding_model: str = "BAAI/bge-small-en-v1.5"
+    # bge's instruction for search queries (not for passages). "" turns it off.
+    embedding_query_prefix: str = "Represent this sentence for searching relevant passages: "
+    embedding_batch_size: int = Field(default=64, gt=0)
 
     # --- Chunking (sizes in tokens) ---
     chunk_size: int = Field(default=400, gt=0)

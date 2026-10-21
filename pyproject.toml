@@ -20,6 +20,8 @@ dependencies = [
     "langchain-core==1.6.12",
     "langchain-groq==1.1.3",
     "tiktoken==0.14.0",
+    "fastembed==0.9.0",
+    "numpy==2.4.6",
 ]
 
 [project.optional-dependencies]
@@ -74,5 +76,8 @@ warn_required_dynamic_aliases = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # -ra: summary of skips/failures; strict flags turn typos in markers/config into errors.
-addopts = ["-ra", "--strict-markers", "--strict-config"]
+addopts = ["-ra", "--strict-markers", "--strict-config", "-m", "not network"]
+markers = [
+    "network: downloads or runs real models; skipped by default, run with: pytest -m network",
+]
 xfail_strict = true

@@ -11,7 +11,10 @@ from hrm.core.llm import get_answer_model, get_fast_model
 from hrm.core.logging import configure_logging, get_logger
 from hrm.rag.chunking import chunk_document, tiktoken_counter
 from hrm.rag.cleaning import clean_document
+from hrm.rag.embeddings import FastEmbedEmbedder
+from hrm.rag.ingest import Ingestor
 from hrm.rag.loading import load_documents
+from hrm.rag.vectorstore import ChromaStore
 
 log = get_logger(__name__)
 
@@ -89,3 +92,39 @@ def chunk_stats() -> None:
     for low in range(0, settings.chunk_size + 1, step):  # +1: a chunk may be exactly the limit
         n = sum(low <= size < low + step for size in sizes)
         typer.echo(f"  {low:>3}-{low + step - 1:<3} {'#' * n} {n}")
+
+
+@app.command()
+def ingest(
+    rebuild: bool = typer.Option(False, "--rebuild", help="Re-embed every document."),
+) -> None:
+    """Index the policy documents. Only new or changed documents are embedded."""
+    settings = get_settings()
+    try:
+        documents = load_documents(settings.docs_dir)
+    except HRMError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    ingestor = Ingestor(
+        embedder=FastEmbedEmbedder.from_settings(settings),
+        store=ChromaStore.from_settings(settings),
+        manifest_path=settings.index_dir / "manifest.json",
+        count_tokens=tiktoken_counter(),
+        chunk_size=settings.chunk_size,
+        chunk_overlap=settings.chunk_overlap,
+        chunk_min_size=settings.chunk_min_size,
+    )
+    report = ingestor.run(documents, rebuild=rebuild)
+
+    typer.echo(
+        f"Ingest finished in {report.seconds:.1f}s" + (" (full rebuild)" if report.rebuilt else "")
+    )
+    for label, doc_ids in [
+        ("added", report.added),
+        ("updated", report.updated),
+        ("unchanged", report.unchanged),
+        ("removed", report.removed),
+    ]:
+        typer.echo(f"  {label:<10} {len(doc_ids):>2}  {', '.join(doc_ids)}")
+    typer.echo(f"  chunks embedded: {report.chunks_embedded}, in index: {report.total_chunks}")

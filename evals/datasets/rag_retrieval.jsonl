@@ -38,10 +38,11 @@
 {"id": "q38", "type": "multi", "question": "If I have a baby, how long can I take off and how do I update my health insurance?", "expected": [{"doc_id": "parental-leave", "section": "Paid parental leave policy at Sourcegraph", "evidence": "up to 16 weeks per birth"}, {"doc_id": "benefits-overview", "section": "Q. How do I make changes to my insurance in the case of a qualifying life event (QLE)?", "evidence": "A Qualifying Life Event (QLE) is a change in your situation"}]}
 {"id": "q39", "type": "multi", "question": "What do I need to do before going on a two-week vacation?", "expected": [{"doc_id": "time-off-policy", "section": "PTO ground rules", "evidence": "minimum of 5 business days"}, {"doc_id": "time-off-policy", "section": "Submitting paid time off (PTO)", "evidence": "via Deel plugin"}]}
 {"id": "q40", "type": "multi", "question": "What are the limits on accepting gifts and on investing in a supplier, to avoid conflicts of interest?", "expected": [{"doc_id": "code-of-conduct", "section": "Gifts", "evidence": "around $50 USD or less"}, {"doc_id": "code-of-conduct", "section": "Conflicts of interest", "evidence": "greater than 1% ownership in a company"}]}
+{"id": "q41", "type": "paraphrase", "question": "How much is the relocation allowance if I move to another city?", "expected": [{"doc_id": "home-office-and-stipends", "section": "Recurring expenses", "evidence": "Moving (moving, packing, shipping, etc.): $1000/year"}]}
 {"id": "u01", "type": "unanswerable", "question": "What is the company's stock option vesting schedule?", "expected": []}
 {"id": "u02", "type": "unanswerable", "question": "What is the salary range for a senior engineer?", "expected": []}
 {"id": "u03", "type": "unanswerable", "question": "Is there a dress code?", "expected": []}
-{"id": "u04", "type": "unanswerable", "question": "How much is the relocation allowance if I move to another city?", "expected": []}
+{"id": "u04", "type": "unanswerable", "question": "Can I take a paid sabbatical after five years at the company?", "expected": []}
 {"id": "u05", "type": "unanswerable", "question": "Can I bring my pet to the office?", "expected": []}
 {"id": "u06", "type": "unanswerable", "question": "How many days per week am I expected to work from the office?", "expected": []}
 {"id": "u07", "type": "unanswerable", "question": "What is the annual bonus for engineers?", "expected": []}

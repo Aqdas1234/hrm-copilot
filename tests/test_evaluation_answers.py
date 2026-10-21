@@ -171,3 +171,35 @@ def test_judge_messages_handle_cases_without_forbidden_claims() -> None:
 def test_bad_judge_replies_become_llm_errors(reply: Any) -> None:
     with pytest.raises(LLMError):
         Judge(FakeJudgeModel(reply)).judge(CASE, ANSWER, CONTEXT)
+
+
+class SequenceJudgeModel:
+    """Returns the given replies one after another."""
+
+    def __init__(self, *replies: Any) -> None:
+        self._replies = list(replies)
+        self.calls = 0
+
+    def invoke(self, input: list[BaseMessage]) -> Any:
+        self.calls += 1
+        reply = self._replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+
+def test_judge_retries_once_when_it_skips_a_statement() -> None:
+    model = SequenceJudgeModel(verdict([True], [False]), verdict([True, True], [False]))
+
+    result = Judge(model).judge(CASE, ANSWER, CONTEXT)
+
+    assert model.calls == 2
+    assert len(result.key_facts) == 2
+
+
+def test_judge_retries_once_after_a_provider_error() -> None:
+    model = SequenceJudgeModel(RuntimeError("tool_use_failed"), verdict([True, True], [False]))
+
+    Judge(model).judge(CASE, ANSWER, CONTEXT)
+
+    assert model.calls == 2

@@ -96,18 +96,26 @@ class Judge:
     def judge(
         self, case: AnswerCase, answer: PolicyAnswer, context: list[RetrievedChunk]
     ) -> JudgeVerdict:
-        try:
-            raw = self._model.invoke(build_judge_messages(case, answer, context))
-            verdict = raw if isinstance(raw, JudgeVerdict) else JudgeVerdict.model_validate(raw)
-        except ValidationError as exc:
-            raise LLMError(f"The judge returned the wrong format: {exc}") from exc
-        except Exception as exc:
-            raise LLMError(f"The judge model failed: {type(exc).__name__}: {exc}") from exc
-        if len(verdict.key_facts) != len(case.key_facts) or len(verdict.forbidden_claims) != len(
-            case.must_not
-        ):
-            raise LLMError(f"The judge skipped or added statements for {case.id}")
-        return verdict
+        """Ask the judge, with one retry: it occasionally skips a statement, returns the wrong
+        format, or the provider rejects its reply (e.g. Groq "tool_use_failed")."""
+        messages = build_judge_messages(case, answer, context)
+        problem = ""
+        for _ in range(2):
+            try:
+                raw = self._model.invoke(messages)
+                verdict = raw if isinstance(raw, JudgeVerdict) else JudgeVerdict.model_validate(raw)
+            except ValidationError as exc:
+                problem = f"wrong format: {exc}"
+                continue
+            except Exception as exc:
+                problem = f"model failed: {type(exc).__name__}: {exc}"
+                continue
+            if len(verdict.key_facts) == len(case.key_facts) and len(
+                verdict.forbidden_claims
+            ) == len(case.must_not):
+                return verdict
+            problem = "skipped or added statements"
+        raise LLMError(f"The judge failed for {case.id} after 2 tries: {problem}")
 
 
 def build_judge_messages(

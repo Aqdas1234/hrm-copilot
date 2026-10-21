@@ -65,12 +65,12 @@ ANSWER_ROWS = [
 ]
 
 
-def test_answer_dataset_has_30_answerable_and_10_unanswerable_questions() -> None:
+def test_answer_dataset_has_31_answerable_and_10_unanswerable_questions() -> None:
     types = Counter(row["type"] for row in ANSWER_ROWS)
 
     assert len({row["id"] for row in ANSWER_ROWS}) == len(ANSWER_ROWS)
     assert types["unanswerable"] == 10
-    assert len(ANSWER_ROWS) - types["unanswerable"] == 30
+    assert len(ANSWER_ROWS) - types["unanswerable"] == 31
 
 
 def test_answerable_questions_have_key_facts_and_known_documents() -> None:

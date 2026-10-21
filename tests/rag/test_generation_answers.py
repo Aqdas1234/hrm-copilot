@@ -50,7 +50,9 @@ def generate(reply: Any, chunks: list[RetrievedChunk] = CHUNKS) -> Any:
 
 
 def test_valid_citations_are_mapped_to_their_sources_in_order() -> None:
-    answer = generate(LLMAnswer(answer="Give 5 days notice [1] and use Deel [2][1].", found=True))
+    answer = generate(
+        LLMAnswer(answer="Give 5 days notice [1] and use Deel [2][1].", found=True, sources=[])
+    )
 
     assert answer.found
     assert answer.answer == "Give 5 days notice [1] and use Deel [2][1]."
@@ -61,7 +63,9 @@ def test_valid_citations_are_mapped_to_their_sources_in_order() -> None:
 
 
 def test_invented_citation_is_removed_from_the_text_and_reported() -> None:
-    answer = generate(LLMAnswer(answer="Notice is 5 days [1]. Approval is needed [7].", found=True))
+    answer = generate(
+        LLMAnswer(answer="Notice is 5 days [1]. Approval is needed [7].", found=True, sources=[])
+    )
 
     assert answer.answer == "Notice is 5 days [1]. Approval is needed."
     assert [c.number for c in answer.citations] == [1]
@@ -69,14 +73,14 @@ def test_invented_citation_is_removed_from_the_text_and_reported() -> None:
 
 
 def test_citation_zero_is_invalid_too() -> None:
-    answer = generate(LLMAnswer(answer="Something [0] and more [3].", found=True))
+    answer = generate(LLMAnswer(answer="Something [0] and more [3].", found=True, sources=[]))
 
     assert [c.number for c in answer.citations] == [3]
     assert answer.removed_citations == [0]
 
 
 def test_not_found_returns_the_standard_reply() -> None:
-    answer = generate(LLMAnswer(answer="Sorry, not in the documents.", found=False))
+    answer = generate(LLMAnswer(answer="Sorry, not in the documents.", found=False, sources=[]))
 
     assert not answer.found
     assert answer.answer == NOT_COVERED_MESSAGE
@@ -84,7 +88,9 @@ def test_not_found_returns_the_standard_reply() -> None:
 
 
 def test_answer_without_any_valid_citation_is_treated_as_not_covered() -> None:
-    answer = generate(LLMAnswer(answer="You get unlimited stock options [9].", found=True))
+    answer = generate(
+        LLMAnswer(answer="You get unlimited stock options [9].", found=True, sources=[])
+    )
 
     assert not answer.found
     assert answer.answer == NOT_COVERED_MESSAGE
@@ -92,13 +98,13 @@ def test_answer_without_any_valid_citation_is_treated_as_not_covered() -> None:
 
 
 def test_uncited_answer_is_treated_as_not_covered() -> None:
-    answer = generate(LLMAnswer(answer="Yes, that is allowed.", found=True))
+    answer = generate(LLMAnswer(answer="Yes, that is allowed.", found=True, sources=[]))
 
     assert not answer.found
 
 
 def test_no_chunks_means_no_model_call() -> None:
-    model = FakeModel(LLMAnswer(answer="x [1]", found=True))
+    model = FakeModel(LLMAnswer(answer="x [1]", found=True, sources=[]))
 
     answer = AnswerGenerator(model).generate("question?", [])
 
@@ -107,7 +113,7 @@ def test_no_chunks_means_no_model_call() -> None:
 
 
 def test_the_model_receives_the_prompt_with_the_documents() -> None:
-    model = FakeModel(LLMAnswer(answer="ok [1]", found=True))
+    model = FakeModel(LLMAnswer(answer="ok [1]", found=True, sources=[]))
 
     AnswerGenerator(model).generate("How much notice?", CHUNKS)
 
@@ -117,7 +123,7 @@ def test_the_model_receives_the_prompt_with_the_documents() -> None:
 
 
 def test_a_plain_dict_reply_is_accepted() -> None:
-    answer = generate({"answer": "Use Deel [2].", "found": True})
+    answer = generate({"answer": "Use Deel [2].", "found": True, "sources": [2]})
 
     assert [c.number for c in answer.citations] == [2]
 
@@ -132,3 +138,31 @@ def test_a_plain_dict_reply_is_accepted() -> None:
 def test_model_failures_become_llm_errors(model: FakeModel) -> None:
     with pytest.raises(LLMError):
         AnswerGenerator(model).generate("question?", CHUNKS)
+
+
+def test_answer_without_inline_markers_is_kept_when_sources_are_valid() -> None:
+    answer = generate(LLMAnswer(answer="Record PTO in Deel.", found=True, sources=[2]))
+
+    assert answer.found
+    assert answer.answer == "Record PTO in Deel."
+    assert [c.number for c in answer.citations] == [2]
+
+
+def test_inline_markers_come_first_then_extra_sources_without_repeats() -> None:
+    answer = generate(LLMAnswer(answer="Notice [2] and Deel [1].", found=True, sources=[3, 2]))
+
+    assert [c.number for c in answer.citations] == [2, 1, 3]
+
+
+def test_invalid_sources_are_reported_and_ignored() -> None:
+    answer = generate(LLMAnswer(answer="Notice is 5 days [1].", found=True, sources=[1, 9]))
+
+    assert [c.number for c in answer.citations] == [1]
+    assert answer.removed_citations == [9]
+
+
+def test_no_valid_marker_or_source_is_still_not_covered() -> None:
+    answer = generate(LLMAnswer(answer="Unlimited stock options.", found=True, sources=[8]))
+
+    assert not answer.found
+    assert answer.removed_citations == [8]

@@ -30,6 +30,8 @@ log = get_logger(__name__)
 _CITATION = re.compile(r"\s?\[(\d+)\]")
 
 # Bump when the prompt changes, so evaluation results can be tied to a prompt version.
+# v2 (stricter qualifier/yes-no/benefit rules) was measured worse in R10.3 and reverted;
+# see evals/RESULTS.md. The structured `sources` field is what fixed false refusals.
 PROMPT_VERSION = 1
 
 NOT_COVERED_MESSAGE = (
@@ -101,6 +103,10 @@ class LLMAnswer(BaseModel):
     found: bool = Field(
         description="True if the documents answer the question (fully or partly), else False."
     )
+    sources: list[int] = Field(
+        description="The ids of the documents that support the answer, e.g. [1, 3]. "
+        "At least one id when found is true; empty when found is false."
+    )
 
 
 class StructuredModel(Protocol):
@@ -132,21 +138,28 @@ class AnswerGenerator:
 
 
 def validate_answer(reply: LLMAnswer, chunks: list[RetrievedChunk]) -> PolicyAnswer:
-    """Keep only citations that point at a provided document; map them to their sources."""
+    """Keep only citations that point at a provided document; map them to their sources.
+    Citations come from the inline [n] markers and the `sources` field; an answer with no
+    valid citation in either is treated as not covered."""
     if not reply.found:
         return not_covered()
 
     removed: list[int] = []
 
+    def valid(number: int) -> bool:
+        return 1 <= number <= len(chunks)
+
     def keep_or_remove(match: re.Match[str]) -> str:
         number = int(match.group(1))
-        if 1 <= number <= len(chunks):
+        if valid(number):
             return match.group(0)
         removed.append(number)
         return ""
 
     text = _CITATION.sub(keep_or_remove, reply.answer).strip()
-    numbers = list(dict.fromkeys(int(n) for n in _CITATION.findall(text)))  # unique, in order
+    inline = [int(n) for n in _CITATION.findall(text)]
+    removed += [n for n in reply.sources if not valid(n) and n not in removed]
+    numbers = list(dict.fromkeys(inline + [n for n in reply.sources if valid(n)]))
     if removed:
         log.warning("answer.invented_citations", removed=removed, documents=len(chunks))
     if not numbers:

@@ -174,7 +174,7 @@ Every retrieval or generation change adds a row here, so improvements are measur
 
 ## Retrieval
 
-Dataset: `evals/datasets/rag_retrieval.jsonl` (40 answerable + 10 unanswerable questions).
+Dataset: `evals/datasets/rag_retrieval.jsonl` (41 answerable + 10 unanswerable questions).
 Run: `.venv/bin/python evals/run_retrieval.py --label "<what changed>"`.
 A result is relevant when it comes from the expected document and contains the evidence phrase.
 The last column compares the mean top-1 score of answerable vs. unanswerable questions.

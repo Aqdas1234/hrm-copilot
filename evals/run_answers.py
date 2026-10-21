@@ -29,11 +29,8 @@ from hrm.evaluation.answers import (
     answer_metrics,
     load_cases,
 )
-from hrm.rag.context import select_context
-from hrm.rag.embeddings import FastEmbedEmbedder
-from hrm.rag.generation import PROMPT_VERSION, AnswerGenerator, not_covered
-from hrm.rag.retrieval.factory import build_retriever
-from hrm.rag.vectorstore import ChromaStore
+from hrm.rag.generation import PROMPT_VERSION, not_covered
+from hrm.rag.service import RAGService
 
 EVALS_DIR = Path(__file__).parent
 DATASET = EVALS_DIR / "datasets" / "rag_answers.jsonl"
@@ -52,12 +49,8 @@ def main() -> None:
     # Patient retries: the free tier's tokens-per-minute limit is hit during a full run.
     settings = get_settings().model_copy(update={"llm_max_retries": 8, "llm_timeout_s": 120.0})
     configure_logging("WARNING", settings.log_format)
-    retriever = build_retriever(
-        settings, FastEmbedEmbedder.from_settings(settings), ChromaStore.from_settings(settings)
-    )
-    generator = AnswerGenerator.from_settings(settings)
+    service = RAGService.from_settings(settings)  # the same pipeline as `hrm ask` and the API
     judge = Judge(get_fast_model(settings).with_structured_output(JudgeVerdict))
-    min_score = settings.min_rerank_score if settings.rerank else None
 
     cases = load_cases(DATASET)
     if args.ids:
@@ -68,17 +61,13 @@ def main() -> None:
     for n, case in enumerate(cases, start=1):
         print(f"[{n}/{len(cases)}] {case.id} {case.question}", flush=True)
         start = time.perf_counter()
-        context = select_context(
-            retriever.retrieve(case.question, settings.top_k),
-            max_tokens=settings.max_context_tokens,
-            min_score=min_score,
-        )
         try:
             with get_usage_metadata_callback() as usage:
-                answer = generator.generate(case.question, context)
+                result = service.answer(case.question)
         except LLMError as exc:
             results.append(_failed(case, f"answer: {exc}", time.perf_counter() - start))
             continue
+        answer, context = result.answer, result.context
         seconds = time.perf_counter() - start
         tokens = sum(u["total_tokens"] for u in usage.usage_metadata.values())
 
@@ -99,6 +88,11 @@ def main() -> None:
         f"{settings.retrieval_mode}{' + rerank' if settings.rerank else ''}, "
         f"answer {settings.answer_model}, prompt v{PROMPT_VERSION}, judge {settings.fast_model}"
     )
+    failed = [r for r in results if r.error]
+    if failed:
+        # Errors (e.g. a daily rate limit) would be scored as refusals and distort the metrics.
+        print(f"\n{len(failed)} question(s) failed with errors; NOT recorded in RESULTS.md.")
+        raise SystemExit(1)
     if not args.no_record and not args.ids:
         _record(overall, label=args.label or "answers", config=config)
         print(f"Recorded in {RESULTS.relative_to(EVALS_DIR.parent)}")
@@ -191,7 +185,7 @@ def _record(m: AnswerMetrics, *, label: str, config: str) -> None:
 def _answers_section() -> str:
     return f"""## Answers
 
-Dataset: `evals/datasets/rag_answers.jsonl` (30 answerable + 10 unanswerable questions).
+Dataset: `evals/datasets/rag_answers.jsonl` (31 answerable + 10 unanswerable questions).
 Run: `.venv/bin/python evals/run_answers.py --label "<what changed>"`.
 Judged by an LLM (see `src/hrm/evaluation/answers.py`): correctness = share of key facts
 present; fully correct = all key facts and no forbidden claim; faithfulness = no claim

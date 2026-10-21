@@ -61,3 +61,13 @@ class ScoredChunk(BaseModel):
 
     chunk: Chunk
     score: float
+
+
+class RetrievedChunk(BaseModel):
+    """A search result as the rest of the app sees it: chunk, score and 1-based rank."""
+
+    model_config = ConfigDict(frozen=True)
+
+    chunk: Chunk
+    score: float  # meaning depends on the retriever (cosine for dense, RRF for hybrid)
+    rank: int

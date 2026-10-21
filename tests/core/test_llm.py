@@ -17,6 +17,12 @@ def test_missing_api_key_raises_configuration_error(
         get_answer_model(make_settings())
 
 
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_blank_api_key_counts_as_missing(make_settings: MakeSettings, blank: str) -> None:
+    with pytest.raises(ConfigurationError, match="HRM_GROQ_API_KEY"):
+        get_fast_model(make_settings(groq_api_key=blank))
+
+
 def test_answer_and_fast_models_use_configured_names_and_limits(
     make_settings: MakeSettings,
 ) -> None:

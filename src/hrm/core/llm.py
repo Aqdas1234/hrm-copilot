@@ -28,12 +28,14 @@ def get_fast_model(settings: Settings | None = None) -> BaseChatModel:
 
 
 def _build(model: str, settings: Settings) -> BaseChatModel:
-    if settings.groq_api_key is None:
+    # An empty value ("HRM_GROQ_API_KEY=" copied from .env.example) counts as missing.
+    api_key = settings.groq_api_key.get_secret_value().strip() if settings.groq_api_key else ""
+    if not api_key:
         raise ConfigurationError("HRM_GROQ_API_KEY is not set. Add it to .env (see .env.example).")
     return init_chat_model(
         model,
         model_provider="groq",
-        api_key=settings.groq_api_key.get_secret_value(),
+        api_key=api_key,
         temperature=settings.llm_temperature,
         timeout=settings.llm_timeout_s,
         max_retries=settings.llm_max_retries,

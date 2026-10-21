@@ -1,6 +1,7 @@
 """Command-line interface. Each RAG step gets its own subcommand as we build it."""
 
 import time
+from typing import get_args
 
 import typer
 
@@ -14,6 +15,8 @@ from hrm.rag.cleaning import clean_document
 from hrm.rag.embeddings import FastEmbedEmbedder
 from hrm.rag.ingest import Ingestor
 from hrm.rag.loading import load_documents
+from hrm.rag.models import Category
+from hrm.rag.retrieval.dense import DenseRetriever
 from hrm.rag.vectorstore import ChromaStore
 
 log = get_logger(__name__)
@@ -128,3 +131,31 @@ def ingest(
     ]:
         typer.echo(f"  {label:<10} {len(doc_ids):>2}  {', '.join(doc_ids)}")
     typer.echo(f"  chunks embedded: {report.chunks_embedded}, in index: {report.total_chunks}")
+
+
+@app.command()
+def search(
+    query: str = typer.Argument(..., help="The question to search for."),
+    k: int = typer.Option(5, "-k", min=1, help="Number of results."),
+    category: str | None = typer.Option(
+        None, "--category", "-c", help=f"Only this category: {', '.join(get_args(Category))}."
+    ),
+) -> None:
+    """Show the chunks most similar to a question (dense retrieval, no LLM)."""
+    if category is not None and category not in get_args(Category):
+        typer.echo(f"Error: unknown category {category!r}.", err=True)
+        raise typer.Exit(code=1)
+    settings = get_settings()
+    store = ChromaStore.from_settings(settings)
+    if store.count() == 0:
+        typer.echo("The index is empty. Run `hrm ingest` first.", err=True)
+        raise typer.Exit(code=1)
+
+    retriever = DenseRetriever(FastEmbedEmbedder.from_settings(settings), store)
+    results = retriever.retrieve(query, k, category=category)  # type: ignore[arg-type]
+
+    for r in results:
+        section = " > ".join(r.chunk.section_path[1:]) or "(introduction)"
+        snippet = " ".join(r.chunk.text.split())[:160]
+        typer.echo(f"{r.rank:>2}. {r.score:.3f}  {r.chunk.doc_id}  |  {section}")
+        typer.echo(f"     {snippet}...\n")

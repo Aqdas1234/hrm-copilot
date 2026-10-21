@@ -1,3 +1,5 @@
+import re
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -50,3 +52,48 @@ def test_ingest_twice_embeds_nothing_the_second_time(
     assert "unchanged   5" in second.stdout
     assert "chunks embedded: 0" in second.stdout
     assert (tmp_path / "manifest.json").exists()
+
+
+@pytest.fixture
+def offline_index(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[None]:
+    """A real Chroma index in a temp folder, built with the fake embedder."""
+    monkeypatch.setenv("HRM_INDEX_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    monkeypatch.setattr("hrm.cli.FastEmbedEmbedder.from_settings", lambda _s: FakeEmbedder())
+    monkeypatch.setattr("hrm.cli.tiktoken_counter", lambda: lambda text: len(text.split()))
+    yield
+    get_settings.cache_clear()
+
+
+def test_search_prints_ranked_results(offline_index: None) -> None:
+    assert runner.invoke(app, ["ingest"]).exit_code == 0
+
+    result = runner.invoke(app, ["search", "parental leave weeks", "-k", "3"])
+
+    assert result.exit_code == 0, result.output
+    assert " 1. " in result.stdout and " 3. " in result.stdout and " 4. " not in result.stdout
+
+
+def test_search_with_category_only_returns_that_category(offline_index: None) -> None:
+    runner.invoke(app, ["ingest"])
+
+    result = runner.invoke(app, ["search", "leave", "-k", "5", "-c", "benefits"])
+
+    assert result.exit_code == 0, result.output
+    result_lines = [ln for ln in result.stdout.splitlines() if re.match(r"\s*\d+\. ", ln)]
+    assert result_lines
+    assert all("  benefits-overview  " in ln for ln in result_lines)
+
+
+def test_search_on_empty_index_explains_what_to_do(offline_index: None) -> None:
+    result = runner.invoke(app, ["search", "anything"])
+
+    assert result.exit_code == 1
+    assert "hrm ingest" in result.output
+
+
+def test_search_rejects_unknown_category(offline_index: None) -> None:
+    result = runner.invoke(app, ["search", "anything", "-c", "payroll"])
+
+    assert result.exit_code == 1
+    assert "unknown category" in result.output

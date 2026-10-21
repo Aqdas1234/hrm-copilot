@@ -18,6 +18,14 @@ cp .env.example .env   # then add your Groq API key
 hrm --help
 ```
 
+## Development
+
+```bash
+pre-commit install          # once: run ruff + mypy on every commit
+pre-commit run --all-files  # lint, format and type-check everything
+pytest                      # unit tests (no network, no LLM calls)
+```
+
 ## Project layout
 
 ```

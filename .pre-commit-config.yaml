@@ -1,0 +1,37 @@
+# Install once with:  pre-commit install
+# Run on everything:  pre-commit run --all-files
+#
+# ruff and mypy run from the project's .venv (language: system), so their versions
+# come only from pyproject.toml and always match CI.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: .venv/bin/ruff check --fix
+        language: system
+        types_or: [python, pyi]
+      - id: ruff-format
+        name: ruff format
+        entry: .venv/bin/ruff format
+        language: system
+        types_or: [python, pyi]
+      - id: mypy
+        name: mypy
+        # Checks the whole project (files are set in pyproject.toml), not just staged files,
+        # so a change in one module can't hide a type error in another.
+        entry: .venv/bin/mypy
+        language: system
+        pass_filenames: false
+        types_or: [python, pyi]

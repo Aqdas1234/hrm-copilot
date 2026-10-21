@@ -66,7 +66,7 @@ select = [
 [tool.mypy]
 python_version = "3.11"
 strict = true
-files = ["src", "tests"]
+files = ["src", "tests", "evals"]
 plugins = ["pydantic.mypy"]
 
 [tool.pydantic-mypy]

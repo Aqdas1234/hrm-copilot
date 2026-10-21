@@ -72,6 +72,9 @@ class Settings(BaseSettings):
     log_level: LogLevel = "INFO"
     log_format: LogFormat = "console"
 
+    # --- UI ---
+    api_url: str = "http://127.0.0.1:8000"  # where the Streamlit page finds the API
+
     @model_validator(mode="after")
     def _check_consistency(self) -> Self:
         if self.chunk_overlap >= self.chunk_size:

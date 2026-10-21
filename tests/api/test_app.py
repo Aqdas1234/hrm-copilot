@@ -54,7 +54,9 @@ class FakeService:
         self.ask_calls.append((question, category))
         if self._error:
             raise self._error
-        return AnswerResult(answer=self._answer, context=[])
+        return AnswerResult(
+            answer=self._answer, context=[RetrievedChunk(chunk=CHUNK, score=3.5, rank=1)]
+        )
 
 
 @pytest.fixture
@@ -99,6 +101,7 @@ def test_ask_returns_answer_and_citations(client: TestClient, service: FakeServi
             "doc_id": "time-off-policy",
             "section": "Paid time off (PTO) policy > PTO ground rules",
             "chunk_id": CHUNK.chunk_id,
+            "quote": CHUNK.text,
         }
     ]
     assert service.ask_calls == [("How much notice?", None)]
@@ -169,3 +172,12 @@ def test_request_id_appears_in_the_request_log(
     request_log = next(r for r in records if r["event"] == "http.request")
     assert request_log["request_id"] == "trace-456"
     assert request_log["status"] == 200
+
+
+def test_long_quotes_are_shortened_at_a_word_boundary() -> None:
+    from hrm.api.app import _quote
+
+    quote = _quote("word " * 200, limit=50)
+
+    assert quote.endswith(" ...")
+    assert len(quote) <= 54

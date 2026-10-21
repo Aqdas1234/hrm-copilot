@@ -1,6 +1,9 @@
 """Command-line interface. Each RAG step gets its own subcommand as we build it."""
 
+import subprocess
+import sys
 import time
+from pathlib import Path
 from typing import get_args
 
 import typer
@@ -191,3 +194,11 @@ def serve(
 ) -> None:
     """Run the HTTP API (docs at http://HOST:PORT/docs)."""
     uvicorn.run("hrm.api.app:create_app", factory=True, host=host, port=port, log_config=None)
+
+
+@app.command()
+def ui(port: int = typer.Option(8501, help="Port for the web page.")) -> None:
+    """Open the Streamlit question page (needs `hrm serve` running for the API)."""
+    page = Path(__file__).parent / "ui" / "streamlit_app.py"
+    command = [sys.executable, "-m", "streamlit", "run", str(page), "--server.port", str(port)]
+    raise typer.Exit(subprocess.run(command, check=False).returncode)

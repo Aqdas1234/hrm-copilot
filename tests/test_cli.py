@@ -167,3 +167,24 @@ def test_serve_starts_uvicorn_with_the_app_factory(monkeypatch: pytest.MonkeyPat
     assert target == "hrm.api.app:create_app"
     assert options["factory"] is True
     assert options["port"] == 9001
+
+
+def test_ui_runs_streamlit_on_the_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    commands: list[list[str]] = []
+
+    class Done:
+        returncode = 0
+
+    def fake_run(cmd: list[str], check: bool) -> Done:
+        commands.append(cmd)
+        return Done()
+
+    monkeypatch.setattr("hrm.cli.subprocess.run", fake_run)
+
+    result = runner.invoke(app, ["ui", "--port", "8600"])
+
+    assert result.exit_code == 0, result.output
+    [command] = commands
+    assert command[1:4] == ["-m", "streamlit", "run"]
+    assert command[4].endswith("ui/streamlit_app.py")
+    assert command[-2:] == ["--server.port", "8600"]

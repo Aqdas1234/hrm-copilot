@@ -40,6 +40,7 @@ from hrm.rag.service import AnswerResult, RAGService
 log = get_logger(__name__)
 
 REQUEST_ID_HEADER = "X-Request-ID"
+QUOTE_CHARS = 400
 _SAFE_REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
 
@@ -141,6 +142,7 @@ def create_app(service: PolicyService | None = None) -> FastAPI:
     def ask(body: AskRequest, request: Request) -> AskResponse:
         service: PolicyService = request.app.state.service
         result = service.answer(body.question, category=body.category)
+        texts = {r.chunk.chunk_id: r.chunk.text for r in result.context}
         return AskResponse(
             answer=result.answer.answer,
             found=result.answer.found,
@@ -150,6 +152,7 @@ def create_app(service: PolicyService | None = None) -> FastAPI:
                     doc_id=c.doc_id,
                     section=" > ".join(c.section_path),
                     chunk_id=c.chunk_id,
+                    quote=_quote(texts.get(c.chunk_id, "")),
                 )
                 for c in result.answer.citations
             ],
@@ -161,3 +164,8 @@ def create_app(service: PolicyService | None = None) -> FastAPI:
         )
 
     return app
+
+
+def _quote(text: str, limit: int = QUOTE_CHARS) -> str:
+    flat = " ".join(text.split())
+    return flat if len(flat) <= limit else flat[:limit].rsplit(" ", 1)[0] + " ..."

@@ -38,6 +38,7 @@ class CitationOut(BaseModel):
     doc_id: str
     section: str
     chunk_id: str
+    quote: str  # the start of the cited policy text, so readers can check the answer
 
 
 class Timings(BaseModel):

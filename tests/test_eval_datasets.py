@@ -55,3 +55,28 @@ def test_expected_section_exists_and_contains_the_evidence(
     assert any(item["evidence"] in s.text for s in matching), (
         f"{row_id}: evidence {item['evidence']!r} not in section {item['section']!r}"
     )
+
+
+# --- answer dataset ----------------------------------------------------------------------
+
+ANSWERS = PROJECT_ROOT / "evals" / "datasets" / "rag_answers.jsonl"
+ANSWER_ROWS = [
+    json.loads(line) for line in ANSWERS.read_text(encoding="utf-8").splitlines() if line
+]
+
+
+def test_answer_dataset_has_30_answerable_and_10_unanswerable_questions() -> None:
+    types = Counter(row["type"] for row in ANSWER_ROWS)
+
+    assert len({row["id"] for row in ANSWER_ROWS}) == len(ANSWER_ROWS)
+    assert types["unanswerable"] == 10
+    assert len(ANSWER_ROWS) - types["unanswerable"] == 30
+
+
+def test_answerable_questions_have_key_facts_and_known_documents() -> None:
+    for row in ANSWER_ROWS:
+        answerable = row["type"] != "unanswerable"
+        assert bool(row["key_facts"]) == answerable, row["id"]
+        assert bool(row["expected_docs"]) == answerable, row["id"]
+        assert set(row["expected_docs"]) <= set(SECTIONS), row["id"]
+        assert all(fact.strip() for fact in row["key_facts"] + row["must_not"]), row["id"]

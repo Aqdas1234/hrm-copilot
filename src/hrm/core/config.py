@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     # --- Chunking (sizes in tokens) ---
     chunk_size: int = Field(default=400, gt=0)
     chunk_overlap: int = Field(default=60, ge=0)
+    chunk_min_size: int = Field(default=50, ge=0)  # smaller sections merge into a neighbor
 
     # --- Retrieval ---
     retrieve_k: int = Field(default=20, gt=0)  # candidates fetched before reranking
@@ -56,6 +57,8 @@ class Settings(BaseSettings):
     def _check_consistency(self) -> Self:
         if self.chunk_overlap >= self.chunk_size:
             raise ValueError("chunk_overlap must be smaller than chunk_size")
+        if self.chunk_min_size >= self.chunk_size:
+            raise ValueError("chunk_min_size must be smaller than chunk_size")
         if self.top_k > self.retrieve_k:
             raise ValueError("top_k must not be larger than retrieve_k")
         return self

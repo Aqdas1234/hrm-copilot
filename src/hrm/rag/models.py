@@ -33,3 +33,21 @@ class SourceDocument(BaseModel):
     content_hash: str  # sha256 of the file bytes; tells ingestion whether a doc changed
     last_updated: date | None
     text: str
+
+
+class Chunk(BaseModel):
+    """A piece of a document small enough to embed, with the metadata needed to cite it."""
+
+    model_config = ConfigDict(frozen=True)
+
+    doc_id: str
+    category: Category
+    audience: Audience
+    section_path: tuple[str, ...]  # document title first, e.g. ("PTO policy", "Ground rules")
+    text: str
+    token_count: int  # of embedding_text, which is what the embedder sees
+
+    @property
+    def embedding_text(self) -> str:
+        """The text that gets embedded: section path as context, then the chunk text."""
+        return f"{' > '.join(self.section_path)}\n\n{self.text}"

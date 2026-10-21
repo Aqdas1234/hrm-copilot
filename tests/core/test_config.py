@@ -45,3 +45,8 @@ def test_top_k_cannot_exceed_retrieve_k(make_settings: MakeSettings) -> None:
 def test_invalid_log_level_is_rejected(make_settings: MakeSettings) -> None:
     with pytest.raises(ValidationError):
         make_settings(log_level="VERBOSE")
+
+
+def test_min_chunk_size_must_be_smaller_than_chunk_size(make_settings: MakeSettings) -> None:
+    with pytest.raises(ValidationError, match="chunk_min_size"):
+        make_settings(chunk_size=100, chunk_min_size=100)

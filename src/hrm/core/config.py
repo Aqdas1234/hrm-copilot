@@ -61,6 +61,13 @@ class Settings(BaseSettings):
     reranker_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
     top_k: int = Field(default=5, gt=0)  # chunks passed to the answer model
 
+    # --- Answer context ---
+    max_context_tokens: int = Field(default=2500, gt=0)  # budget for documents in the prompt
+    # Reranker score below which the best chunk is "clearly unrelated": answer "not covered"
+    # without calling the LLM. Chosen conservatively from evals (lowest answerable: -6.7).
+    # Only applied when rerank is on (other retrievers' scores are on different scales).
+    min_rerank_score: float = -8.0
+
     # --- Logging ---
     log_level: LogLevel = "INFO"
     log_format: LogFormat = "console"

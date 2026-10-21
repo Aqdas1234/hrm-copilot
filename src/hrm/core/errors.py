@@ -13,5 +13,9 @@ class ConfigurationError(HRMError):
     """A required setting is missing or invalid (for example, no API key)."""
 
 
+class DocumentLoadError(HRMError):
+    """A policy document or the catalog is missing, invalid or out of sync."""
+
+
 class LLMError(HRMError):
     """The language model call failed after retries, or returned something unusable."""

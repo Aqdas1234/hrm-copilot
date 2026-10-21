@@ -52,3 +52,12 @@ class Chunk(BaseModel):
     def embedding_text(self) -> str:
         """The text that gets embedded: section path as context, then the chunk text."""
         return f"{' > '.join(self.section_path)}\n\n{self.text}"
+
+
+class ScoredChunk(BaseModel):
+    """A chunk returned by a search, with its similarity to the query (higher is closer)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    chunk: Chunk
+    score: float

@@ -63,6 +63,28 @@ class ScoredChunk(BaseModel):
     score: float
 
 
+class Citation(BaseModel):
+    """A source the answer relies on, resolved by code from the model's [n] marker."""
+
+    model_config = ConfigDict(frozen=True)
+
+    number: int  # the [n] shown in the answer text
+    chunk_id: str
+    doc_id: str
+    section_path: tuple[str, ...]
+
+
+class PolicyAnswer(BaseModel):
+    """The final answer returned to callers (CLI, API, agents)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    answer: str
+    found: bool  # False: the policies do not cover the question
+    citations: list[Citation]
+    removed_citations: list[int] = []  # [n] markers the model invented, stripped from answer
+
+
 class RetrievedChunk(BaseModel):
     """A search result as the rest of the app sees it: chunk, score and 1-based rank."""
 

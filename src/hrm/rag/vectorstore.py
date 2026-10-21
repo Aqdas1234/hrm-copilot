@@ -38,6 +38,10 @@ class VectorStore(Protocol):
 
     def count(self) -> int: ...
 
+    def all_chunks(self) -> list[Chunk]:
+        """Every stored chunk, sorted by chunk_id (e.g. to build a keyword index)."""
+        ...
+
 
 class ChromaStore:
     """ChromaDB saved on disk. We pass our own vectors; Chroma never embeds anything."""
@@ -93,6 +97,16 @@ class ChromaStore:
 
     def count(self) -> int:
         return self._collection.count()
+
+    def all_chunks(self) -> list[Chunk]:
+        result = self._collection.get(include=["documents", "metadatas"])
+        documents = result["documents"] or []
+        metadatas = result["metadatas"] or []
+        chunks = [
+            _from_metadata(i, d, m)
+            for i, d, m in zip(result["ids"], documents, metadatas, strict=True)
+        ]
+        return sorted(chunks, key=lambda c: c.chunk_id)
 
 
 # Chroma metadata values must be str, int, float or bool, so the section path is stored as JSON.

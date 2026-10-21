@@ -130,3 +130,10 @@ def test_chroma_keeps_data_on_disk_between_instances(tmp_path: Path) -> None:
 
     assert reopened.count() == 1
     assert reopened.query(X, k=1)[0].chunk.chunk_id == "x"
+
+
+def test_all_chunks_returns_every_chunk_sorted_by_id(store: VectorStore) -> None:
+    chunks = [make_chunk("b"), make_chunk("a"), make_chunk("c", doc_id="doc-b")]
+    store.upsert(chunks, [X, Y, XY])
+
+    assert store.all_chunks() == sorted(chunks, key=lambda c: c.chunk_id)

@@ -23,6 +23,7 @@ dependencies = [
     "fastembed==0.9.0",
     "numpy==2.4.6",
     "chromadb==1.5.9",
+    "rank-bm25==0.2.2",
 ]
 
 [project.optional-dependencies]
@@ -82,3 +83,8 @@ markers = [
     "network: downloads or runs real models; skipped by default, run with: pytest -m network",
 ]
 xfail_strict = true
+
+[[tool.mypy.overrides]]
+# rank-bm25 ships without type hints.
+module = ["rank_bm25"]
+ignore_missing_imports = true

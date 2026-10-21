@@ -12,7 +12,7 @@ from datetime import date
 from pathlib import Path
 from statistics import mean
 
-from hrm.core.config import get_settings
+from hrm.core.config import Settings, get_settings
 from hrm.core.logging import configure_logging
 from hrm.evaluation.retrieval import (
     MRR_DEPTH,
@@ -25,6 +25,7 @@ from hrm.evaluation.retrieval import (
 from hrm.rag.embeddings import FastEmbedEmbedder
 from hrm.rag.ingest import Manifest
 from hrm.rag.retrieval import Retriever
+from hrm.rag.retrieval.bm25 import BM25Retriever
 from hrm.rag.retrieval.dense import DenseRetriever
 from hrm.rag.vectorstore import ChromaStore
 
@@ -36,7 +37,7 @@ ROWS_MARKER = "<!-- retrieval rows: new rows are inserted above this line -->"
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--retriever", choices=["dense"], default="dense")
+    parser.add_argument("--retriever", choices=["dense", "bm25"], default="dense")
     parser.add_argument("--label", default="", help="Short name for this run in RESULTS.md.")
     parser.add_argument("--no-record", action="store_true", help="Do not write RESULTS.md.")
     args = parser.parse_args()
@@ -44,9 +45,7 @@ def main() -> None:
     settings = get_settings()
     configure_logging("WARNING", settings.log_format)  # keep per-query logs out of the report
     _check_index_matches_settings(settings.index_dir / "manifest.json", settings.embedding_model)
-    retriever: Retriever = DenseRetriever(
-        FastEmbedEmbedder.from_settings(settings), ChromaStore.from_settings(settings)
-    )
+    retriever = _build_retriever(args.retriever, settings)
 
     results = []
     for question in load_dataset(DATASET):
@@ -57,11 +56,12 @@ def main() -> None:
     overall = metrics(results)
     _print_report(results, overall)
 
-    config = (
-        f"{settings.embedding_model.split('/')[-1]}, chunks {settings.chunk_size}/"
-        f"{settings.chunk_overlap}/{settings.chunk_min_size}, "
+    chunks = f"chunks {settings.chunk_size}/{settings.chunk_overlap}/{settings.chunk_min_size}"
+    embedding = (
+        f"{settings.embedding_model.split('/')[-1]}, "
         f"query prefix {'on' if settings.embedding_query_prefix else 'off'}"
     )
+    config = chunks if args.retriever == "bm25" else f"{embedding}, {chunks}"
     if not args.no_record:
         _record(
             results,
@@ -71,6 +71,13 @@ def main() -> None:
             config=config,
         )
         print(f"\nRecorded in {RESULTS.relative_to(EVALS_DIR.parent)}")
+
+
+def _build_retriever(name: str, settings: Settings) -> Retriever:
+    store = ChromaStore.from_settings(settings)
+    if name == "bm25":
+        return BM25Retriever(store.all_chunks())
+    return DenseRetriever(FastEmbedEmbedder.from_settings(settings), store)
 
 
 def _check_index_matches_settings(manifest_path: Path, embedding_model: str) -> None:

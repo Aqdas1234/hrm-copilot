@@ -11,5 +11,6 @@ The last column compares the mean top-1 score of answerable vs. unanswerable que
 
 | date | label | retriever | config | hit@1 | hit@5 | MRR@10 | recall@5 | ms/q | top-1 ans/unans |
 |---|---|---|---|---|---|---|---|---|---|
-| 2026-10-21 | dense baseline | dense | bge-small-en-v1.5, chunks 400/60/50, query prefix on | 0.70 | 0.88 | 0.783 | 0.85 | 10 | 0.734 / 0.599 |
+| 2026-10-21 | dense baseline | dense | bge-small-en-v1.5, query prefix on, chunks 400/60/50 | 0.70 | 0.88 | 0.783 | 0.85 | 10 | 0.734 / 0.599 |
+| 2026-10-21 | bm25 only | bm25 | chunks 400/60/50 | 0.62 | 0.90 | 0.754 | 0.89 | 0 | 12.501 / 5.735 |
 <!-- retrieval rows: new rows are inserted above this line -->

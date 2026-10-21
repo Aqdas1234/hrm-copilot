@@ -80,3 +80,6 @@ class InMemoryVectorStore:
 
     def count(self) -> int:
         return len(self._rows)
+
+    def all_chunks(self) -> list[Chunk]:
+        return sorted((chunk for chunk, _ in self._rows.values()), key=lambda c: c.chunk_id)

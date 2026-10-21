@@ -3,6 +3,7 @@
 Uses the real index (run `hrm ingest` first) and the real embedding model.
 
     .venv/bin/python evals/run_retrieval.py --label "dense baseline"
+    .venv/bin/python evals/run_retrieval.py --retriever hybrid --label "hybrid RRF"
     .venv/bin/python evals/run_retrieval.py --no-record      # just print the report
 """
 
@@ -12,7 +13,7 @@ from datetime import date
 from pathlib import Path
 from statistics import mean
 
-from hrm.core.config import Settings, get_settings
+from hrm.core.config import get_settings
 from hrm.core.logging import configure_logging
 from hrm.evaluation.retrieval import (
     MRR_DEPTH,
@@ -24,9 +25,7 @@ from hrm.evaluation.retrieval import (
 )
 from hrm.rag.embeddings import FastEmbedEmbedder
 from hrm.rag.ingest import Manifest
-from hrm.rag.retrieval import Retriever
-from hrm.rag.retrieval.bm25 import BM25Retriever
-from hrm.rag.retrieval.dense import DenseRetriever
+from hrm.rag.retrieval.factory import build_retriever
 from hrm.rag.vectorstore import ChromaStore
 
 EVALS_DIR = Path(__file__).parent
@@ -37,15 +36,24 @@ ROWS_MARKER = "<!-- retrieval rows: new rows are inserted above this line -->"
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--retriever", choices=["dense", "bm25"], default="dense")
+    parser.add_argument(
+        "--retriever",
+        choices=["dense", "bm25", "hybrid"],
+        help="Overrides HRM_RETRIEVAL_MODE for this run.",
+    )
     parser.add_argument("--label", default="", help="Short name for this run in RESULTS.md.")
     parser.add_argument("--no-record", action="store_true", help="Do not write RESULTS.md.")
     args = parser.parse_args()
 
     settings = get_settings()
+    if args.retriever:
+        settings = settings.model_copy(update={"retrieval_mode": args.retriever})
+    mode = settings.retrieval_mode
     configure_logging("WARNING", settings.log_format)  # keep per-query logs out of the report
     _check_index_matches_settings(settings.index_dir / "manifest.json", settings.embedding_model)
-    retriever = _build_retriever(args.retriever, settings)
+    retriever = build_retriever(
+        settings, FastEmbedEmbedder.from_settings(settings), ChromaStore.from_settings(settings)
+    )
 
     results = []
     for question in load_dataset(DATASET):
@@ -61,23 +69,22 @@ def main() -> None:
         f"{settings.embedding_model.split('/')[-1]}, "
         f"query prefix {'on' if settings.embedding_query_prefix else 'off'}"
     )
-    config = chunks if args.retriever == "bm25" else f"{embedding}, {chunks}"
+    configs = {
+        "dense": f"{embedding}, {chunks}",
+        "bm25": chunks,
+        "hybrid": f"RRF k={settings.rrf_k}, {settings.retrieve_k} candidates each, "
+        f"{embedding}, {chunks}",
+    }
+    config = configs[mode]
     if not args.no_record:
         _record(
             results,
             overall,
-            label=args.label or args.retriever,
-            retriever=args.retriever,
+            label=args.label or mode,
+            retriever=mode,
             config=config,
         )
         print(f"\nRecorded in {RESULTS.relative_to(EVALS_DIR.parent)}")
-
-
-def _build_retriever(name: str, settings: Settings) -> Retriever:
-    store = ChromaStore.from_settings(settings)
-    if name == "bm25":
-        return BM25Retriever(store.all_chunks())
-    return DenseRetriever(FastEmbedEmbedder.from_settings(settings), store)
 
 
 def _check_index_matches_settings(manifest_path: Path, embedding_model: str) -> None:

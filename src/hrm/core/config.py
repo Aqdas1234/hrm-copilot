@@ -53,7 +53,9 @@ class Settings(BaseSettings):
     chunk_min_size: int = Field(default=50, ge=0)  # smaller sections merge into a neighbor
 
     # --- Retrieval ---
-    retrieve_k: int = Field(default=20, gt=0)  # candidates fetched before reranking
+    retrieval_mode: Literal["dense", "bm25", "hybrid"] = "dense"
+    rrf_k: int = Field(default=60, gt=0)  # Reciprocal Rank Fusion constant (hybrid mode)
+    retrieve_k: int = Field(default=20, gt=0)  # candidates fetched before fusion/reranking
     top_k: int = Field(default=5, gt=0)  # chunks passed to the answer model
 
     # --- Logging ---

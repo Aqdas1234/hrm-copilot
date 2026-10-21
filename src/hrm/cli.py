@@ -16,7 +16,7 @@ from hrm.rag.embeddings import FastEmbedEmbedder
 from hrm.rag.ingest import Ingestor
 from hrm.rag.loading import load_documents
 from hrm.rag.models import Category
-from hrm.rag.retrieval.dense import DenseRetriever
+from hrm.rag.retrieval.factory import build_retriever
 from hrm.rag.vectorstore import ChromaStore
 
 log = get_logger(__name__)
@@ -141,7 +141,7 @@ def search(
         None, "--category", "-c", help=f"Only this category: {', '.join(get_args(Category))}."
     ),
 ) -> None:
-    """Show the chunks most similar to a question (dense retrieval, no LLM)."""
+    """Show the chunks most relevant to a question (HRM_RETRIEVAL_MODE, no LLM)."""
     if category is not None and category not in get_args(Category):
         typer.echo(f"Error: unknown category {category!r}.", err=True)
         raise typer.Exit(code=1)
@@ -151,7 +151,7 @@ def search(
         typer.echo("The index is empty. Run `hrm ingest` first.", err=True)
         raise typer.Exit(code=1)
 
-    retriever = DenseRetriever(FastEmbedEmbedder.from_settings(settings), store)
+    retriever = build_retriever(settings, FastEmbedEmbedder.from_settings(settings), store)
     results = retriever.retrieve(query, k, category=category)  # type: ignore[arg-type]
 
     for r in results:

@@ -51,8 +51,8 @@ flowchart LR
 Requires Python 3.11 and a free [Groq](https://console.groq.com) API key.
 
 ```bash
-uv venv --python 3.11 .venv && source .venv/bin/activate
-uv pip install -e ".[dev]"
+uv sync                            # creates .venv with the exact versions from uv.lock (incl. dev tools)
+source .venv/bin/activate
 cp .env.example .env               # then set HRM_GROQ_API_KEY
 hrm ingest                         # index the policies (downloads two small local models once)
 hrm ask "Within how many days do I need to file an expense report?"

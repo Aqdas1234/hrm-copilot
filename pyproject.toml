@@ -29,7 +29,9 @@ dependencies = [
     "streamlit==1.66.0",
 ]
 
-[project.optional-dependencies]
+# Dev tools as a dependency group (PEP 735): `uv sync` and `uv run` install it by default,
+# so syncing the environment never removes them.
+[dependency-groups]
 dev = [
     "pytest==9.1.1",
     "pytest-cov==7.1.0",

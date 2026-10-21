@@ -11,6 +11,7 @@ Sizes are counted by a TokenCounter passed in, so tests can use a fake one offli
 """
 
 import re
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
@@ -26,6 +27,7 @@ _QUESTION = re.compile(r"^Q[.:]\s")
 _QUESTION_PARAGRAPH = re.compile(r"^(- )?Q[.:]\s")  # a question written as body text
 _PARAGRAPH_BREAK = re.compile(r"\n\s*\n")
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+_NON_ALNUM = re.compile(r"[^a-z0-9]+")
 
 
 @lru_cache(maxsize=1)
@@ -89,12 +91,15 @@ def chunk_document(
     """Turn a cleaned document into chunks whose embedding_text is at most max_tokens."""
     sections = _merge_tiny(split_sections(doc), max_tokens, min_tokens, count_tokens)
     chunks: list[Chunk] = []
+    seen: Counter[str] = Counter()  # chunks per slug so far, numbers chunks with the same slug
     for section in sections:
         budget = max_tokens - count_tokens(_prefix(section.path))
         if budget <= overlap_tokens:
             raise ValueError(f"Section path too long for max_tokens={max_tokens}: {section.path}")
+        slug = _slug(section.path[-1])
         for text in _split_text(section.text, budget, overlap_tokens, count_tokens):
             chunk = Chunk(
+                chunk_id=f"{doc.doc_id}:{slug}:{seen[slug]}",
                 doc_id=doc.doc_id,
                 category=doc.category,
                 audience=doc.audience,
@@ -105,11 +110,18 @@ def chunk_document(
             chunks.append(
                 chunk.model_copy(update={"token_count": count_tokens(chunk.embedding_text)})
             )
+            seen[slug] += 1
     return chunks
 
 
 def _prefix(path: tuple[str, ...]) -> str:
     return " > ".join(path) + "\n\n"  # must match Chunk.embedding_text
+
+
+def _slug(heading: str) -> str:
+    """'Q: Can I extend my leave?' -> 'q-can-i-extend-my-leave' (max 60 chars)."""
+    slug = _NON_ALNUM.sub("-", heading.lower()).strip("-")
+    return slug[:60].rstrip("-") or "section"
 
 
 # --- merging tiny sections -----------------------------------------------------------------

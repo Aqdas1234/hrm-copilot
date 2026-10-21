@@ -40,6 +40,7 @@ class Chunk(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
+    chunk_id: str  # "doc_id:section-slug:n", the same on every run for the same file
     doc_id: str
     category: Category
     audience: Audience

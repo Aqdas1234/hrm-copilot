@@ -200,3 +200,36 @@ def test_real_documents_chunks_fit_and_lose_no_words(doc: SourceDocument) -> Non
     from_doc = Counter(" ".join(content).split())
     from_chunks = Counter(" ".join(c.text for c in chunks).split())
     assert not from_doc - from_chunks  # every word of the document is in some chunk
+
+
+# --- chunk IDs (R3.3) ---------------------------------------------------------------------
+
+
+def test_chunk_ids_number_chunks_that_share_a_heading() -> None:
+    paragraphs = "\n\n".join(words(6, f"p{i}_") for i in range(10))
+    doc = make_doc(f"# Title\n## Big part\n{paragraphs}\n## Q. Done?\n{words(6)}\n")
+
+    ids = [c.chunk_id for c in chunk(doc)]
+
+    assert ids[0] == "doc:big-part:0"
+    assert ids[1] == "doc:big-part:1"
+    assert ids[-1] == "doc:q-done:0"
+
+
+def test_same_heading_in_two_places_gets_distinct_ids() -> None:
+    doc = make_doc(f"# Title\n## A\n### Notes\n{words(10)}\n## B\n### Notes\n{words(10)}\n")
+
+    assert [c.chunk_id for c in chunk(doc)] == ["doc:notes:0", "doc:notes:1"]
+
+
+def test_real_chunk_ids_are_unique_and_stable_across_runs() -> None:
+    def all_ids() -> list[str]:
+        return [
+            c.chunk_id for d in DOCS for c in chunk(d, max_tokens=400, overlap=60, min_tokens=50)
+        ]
+
+    first = all_ids()
+
+    assert len(first) == len(set(first))
+    assert first == all_ids()
+    assert all(i.startswith(f"{i.split(':')[0]}:") and i.count(":") == 2 for i in first)

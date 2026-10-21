@@ -9,6 +9,9 @@ from hrm.core.config import get_settings
 from hrm.core.errors import HRMError
 from hrm.core.llm import get_answer_model, get_fast_model
 from hrm.core.logging import configure_logging, get_logger
+from hrm.rag.chunking import chunk_document, tiktoken_counter
+from hrm.rag.cleaning import clean_document
+from hrm.rag.loading import load_documents
 
 log = get_logger(__name__)
 
@@ -51,3 +54,38 @@ def check_llm(
     elapsed_ms = round((time.perf_counter() - start) * 1000)
     log.info("llm.check", model=getattr(model, "model_name", "?"), ms=elapsed_ms)
     typer.echo(reply.text.strip())
+
+
+@app.command("chunk-stats")
+def chunk_stats() -> None:
+    """Load, clean and chunk every document, then print chunk counts and token sizes."""
+    settings = get_settings()
+    try:
+        documents = load_documents(settings.docs_dir)
+    except HRMError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    count_tokens = tiktoken_counter()
+    sizes: list[int] = []
+    typer.echo(f"{'document':<26} {'chunks':>6} {'min':>5} {'median':>6} {'max':>5}")
+    for doc in documents:
+        chunks = chunk_document(
+            clean_document(doc),
+            max_tokens=settings.chunk_size,
+            overlap_tokens=settings.chunk_overlap,
+            min_tokens=settings.chunk_min_size,
+            count_tokens=count_tokens,
+        )
+        tokens = sorted(c.token_count for c in chunks)
+        sizes += tokens
+        typer.echo(
+            f"{doc.doc_id:<26} {len(chunks):>6} {tokens[0]:>5} "
+            f"{tokens[len(tokens) // 2]:>6} {tokens[-1]:>5}"
+        )
+
+    step = 100
+    typer.echo(f"\n{len(sizes)} chunks, limit {settings.chunk_size} tokens. Size histogram:")
+    for low in range(0, settings.chunk_size + 1, step):  # +1: a chunk may be exactly the limit
+        n = sum(low <= size < low + step for size in sizes)
+        typer.echo(f"  {low:>3}-{low + step - 1:<3} {'#' * n} {n}")

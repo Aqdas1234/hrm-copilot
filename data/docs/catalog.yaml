@@ -1,0 +1,33 @@
+# One entry per policy document in this folder.
+# Metadata here travels with every chunk, so retrieval can filter by it later
+# (e.g. only "benefits", or skip US-only documents for a teammate in another country).
+#
+#   doc_id:   stable id used in citations; never reuse or rename once published
+#   category: one of benefits, conduct, expenses, parental_leave, time_off
+#   audience: "all" teammates, or "us" (US-based only)
+
+documents:
+  - file: benefits-overview.md
+    doc_id: benefits-overview
+    category: benefits
+    audience: us
+
+  - file: code-of-conduct.md
+    doc_id: code-of-conduct
+    category: conduct
+    audience: all
+
+  - file: home-office-and-stipends.md
+    doc_id: home-office-and-stipends
+    category: expenses
+    audience: all
+
+  - file: parental-leave.md
+    doc_id: parental-leave
+    category: parental_leave
+    audience: all
+
+  - file: time-off-policy.md
+    doc_id: time-off-policy
+    category: time_off
+    audience: all

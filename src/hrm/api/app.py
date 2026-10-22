@@ -18,8 +18,11 @@ from typing import Protocol
 import structlog
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session, sessionmaker
 
 from hrm import __version__
+from hrm.api import hr_routes
+from hrm.api.hr_routes import AuthConfig
 from hrm.api.schemas import (
     AskRequest,
     AskResponse,
@@ -31,9 +34,13 @@ from hrm.api.schemas import (
     SearchResponse,
     Timings,
 )
+from hrm.auth.access import AccessDeniedError
+from hrm.auth.login import InvalidCredentialsError
+from hrm.auth.tokens import InvalidTokenError
 from hrm.core.config import get_settings
 from hrm.core.errors import ConfigurationError, HRMError, LLMError
 from hrm.core.logging import configure_logging, get_logger
+from hrm.db.session import make_engine
 from hrm.rag.models import Category, RetrievedChunk
 from hrm.rag.service import AnswerResult, RAGService
 
@@ -54,16 +61,28 @@ class PolicyService(Protocol):
     def answer(self, question: str, *, category: Category | None = None) -> AnswerResult: ...
 
 
-def create_app(service: PolicyService | None = None) -> FastAPI:
+def create_app(
+    service: PolicyService | None = None,
+    *,
+    session_factory: sessionmaker[Session] | None = None,
+    auth: AuthConfig | None = None,
+) -> FastAPI:
+    """Without arguments, everything is built from settings at startup; tests pass fakes."""
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        settings = get_settings()
         if service is None:
-            settings = get_settings()
             configure_logging(settings.log_level, settings.log_format)
             log.info("api.starting", version=__version__)
-            app.state.service = RAGService.from_settings(settings)  # loads models once
-        else:
-            app.state.service = service
+        app.state.service = service or RAGService.from_settings(settings)  # loads models once
+        app.state.session_factory = session_factory or sessionmaker(
+            make_engine(settings.database_url.get_secret_value())
+        )
+        app.state.auth = auth or AuthConfig(
+            secret=settings.jwt_secret.get_secret_value() if settings.jwt_secret else None,
+            ttl_minutes=settings.jwt_ttl_minutes,
+        )
         yield
 
     app = FastAPI(
@@ -109,10 +128,25 @@ def create_app(service: PolicyService | None = None) -> FastAPI:
         log.error("api.config_error", error=str(exc))
         return JSONResponse(status_code=503, content={"detail": "The service is not configured."})
 
+    @app.exception_handler(InvalidTokenError)
+    @app.exception_handler(InvalidCredentialsError)
+    async def unauthorized(request: Request, exc: HRMError) -> JSONResponse:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": str(exc)},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    @app.exception_handler(AccessDeniedError)
+    async def forbidden(request: Request, exc: AccessDeniedError) -> JSONResponse:
+        return JSONResponse(status_code=403, content={"detail": str(exc)})
+
     @app.exception_handler(HRMError)
     async def hrm_error(request: Request, exc: HRMError) -> JSONResponse:
         log.error("api.error", error=str(exc))
         return JSONResponse(status_code=500, content={"detail": "Internal error."})
+
+    app.include_router(hr_routes.router)
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:

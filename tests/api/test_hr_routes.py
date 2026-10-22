@@ -1,0 +1,242 @@
+"""Login, tokens and role-protected HR endpoints, against a seeded in-memory database."""
+
+from collections.abc import Iterator
+from datetime import UTC, date, datetime, timedelta
+
+import jwt
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import select
+from sqlalchemy.orm import Session, sessionmaker
+
+from hrm.api.app import create_app
+from hrm.api.hr_routes import AuthConfig
+from hrm.auth.tokens import create_token
+from hrm.db.models import AuditLog, User
+from hrm.db.seed import seed
+from hrm.db.session import create_schema, make_engine
+from tests.api.test_app import FakeService
+
+PASSWORD = "demo-pass"
+SECRET = "test-secret-at-least-32-bytes-long!!"
+
+
+@pytest.fixture
+def factory() -> Iterator[sessionmaker[Session]]:
+    engine = make_engine("sqlite://")
+    create_schema(engine)
+    factory = sessionmaker(engine)
+    with factory() as s:
+        seed(s, today=date.today(), demo_password=PASSWORD)
+        s.commit()
+    yield factory
+    engine.dispose()
+
+
+@pytest.fixture
+def client(factory: sessionmaker[Session]) -> Iterator[TestClient]:
+    app = create_app(
+        FakeService(), session_factory=factory, auth=AuthConfig(SECRET, ttl_minutes=60)
+    )
+    with TestClient(app) as c:
+        yield c
+
+
+def login(client: TestClient, name: str, password: str = PASSWORD) -> dict[str, str]:
+    response = client.post(
+        "/auth/login", json={"email": f"{name}@example.com", "password": password}
+    )
+    assert response.status_code == 200, response.text
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
+def employee_id(factory: sessionmaker[Session], name: str) -> int:
+    with factory() as s:
+        user = s.scalar(select(User).where(User.email == f"{name}@example.com"))
+        assert user is not None
+        return user.employee_id
+
+
+def actions(factory: sessionmaker[Session]) -> list[str]:
+    with factory() as s:
+        return [
+            a for a in s.scalars(select(AuditLog.action).order_by(AuditLog.id)) if a != "db.seed"
+        ]
+
+
+# --- login --------------------------------------------------------------------------------
+
+
+def test_login_returns_a_bearer_token(client: TestClient) -> None:
+    body = client.post(
+        "/auth/login", json={"email": "alice.park@example.com", "password": PASSWORD}
+    ).json()
+
+    assert body["token_type"] == "bearer"
+    assert body["expires_in"] == 3600
+    claims = jwt.decode(body["access_token"], SECRET, algorithms=["HS256"], issuer="hrm-copilot")
+    assert claims["role"] == "employee"
+
+
+def test_wrong_password_and_unknown_email_give_the_same_401(
+    client: TestClient, factory: sessionmaker[Session]
+) -> None:
+    wrong = client.post("/auth/login", json={"email": "alice.park@example.com", "password": "nope"})
+    unknown = client.post("/auth/login", json={"email": "nobody@example.com", "password": "nope"})
+
+    assert wrong.status_code == unknown.status_code == 401
+    assert wrong.json() == unknown.json()  # cannot tell which emails exist
+    assert actions(factory) == ["auth.login_failed", "auth.login_failed"]
+
+
+def test_generated_employees_cannot_log_in(
+    client: TestClient, factory: sessionmaker[Session]
+) -> None:
+    with factory() as s:
+        email = s.scalar(
+            select(User.email).where(
+                User.email.not_like("%.park@%"),
+                User.email.not_like("%.chen@%"),
+                User.email.not_like("%.khan@%"),
+                User.email.not_like("%.reyes@%"),
+            )
+        )
+    assert (
+        client.post("/auth/login", json={"email": email, "password": PASSWORD}).status_code == 401
+    )
+
+
+@pytest.mark.parametrize("secret", [None, "too-short"])
+def test_login_without_a_usable_secret_is_503(
+    factory: sessionmaker[Session], secret: str | None
+) -> None:
+    app = create_app(
+        FakeService(), session_factory=factory, auth=AuthConfig(secret, ttl_minutes=60)
+    )
+    with TestClient(app) as client:
+        response = client.post(
+            "/auth/login", json={"email": "alice.park@example.com", "password": PASSWORD}
+        )
+
+    assert response.status_code == 503
+
+
+# --- tokens -------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        {},  # no token
+        {"Authorization": "Bearer not-a-jwt"},
+        {
+            "Authorization": "Bearer "
+            + jwt.encode(
+                {"sub": "1", "iss": "hrm-copilot", "iat": 0, "exp": 9e9},
+                "wrong-secret-xxxxxxxxxxxxxxxxxxxxxxxx",
+                algorithm="HS256",
+            )
+        },
+    ],
+    ids=["missing", "malformed", "forged with another secret"],
+)
+def test_requests_without_a_valid_token_are_401(client: TestClient, header: dict[str, str]) -> None:
+    response = client.get("/me", headers=header)
+
+    assert response.status_code == 401
+    assert response.headers["WWW-Authenticate"] == "Bearer"
+
+
+def test_tampered_token_is_rejected(client: TestClient, factory: sessionmaker[Session]) -> None:
+    token = login(client, "alice.park")["Authorization"].removeprefix("Bearer ")
+    header, _original_payload, signature = token.split(".")
+    claims = jwt.decode(token, options={"verify_signature": False})
+    claims["sub"] = str(employee_id(factory, "carol.reyes"))  # try to become someone else
+    forged_payload = jwt.encode(claims, "x" * 40, algorithm="HS256").split(".")[1]
+
+    response = client.get(
+        "/me", headers={"Authorization": f"Bearer {header}.{forged_payload}.{signature}"}
+    )
+
+    assert response.status_code == 401
+
+
+def test_expired_token_is_rejected(client: TestClient, factory: sessionmaker[Session]) -> None:
+    with factory() as s:
+        user = s.scalar(select(User).where(User.email == "alice.park@example.com"))
+        assert user is not None
+        token = create_token(
+            user, secret=SECRET, ttl_minutes=60, now=datetime.now(UTC) - timedelta(hours=2)
+        )
+
+    assert client.get("/me", headers={"Authorization": f"Bearer {token}"}).status_code == 401
+
+
+def test_disabled_account_is_locked_out_immediately(
+    client: TestClient, factory: sessionmaker[Session]
+) -> None:
+    headers = login(client, "alice.park")
+    with factory() as s:
+        user = s.scalar(select(User).where(User.email == "alice.park@example.com"))
+        assert user is not None
+        user.is_active = False
+        s.commit()
+
+    assert client.get("/me", headers=headers).status_code == 401  # token still valid, account not
+
+
+# --- role-protected endpoints ------------------------------------------------------------
+
+
+def test_employee_sees_own_data(client: TestClient) -> None:
+    headers = login(client, "alice.park")
+
+    assert client.get("/me", headers=headers).json()["name"] == "Alice Park"
+    assert len(client.get("/me/leave", headers=headers).json()) == 2
+    assert client.get("/me/salary", headers=headers).json()["currency"] == "USD"
+    assert client.get("/team", headers=headers).json() == []
+
+
+def test_employee_is_refused_other_people_and_the_refusal_is_audited(
+    client: TestClient, factory: sessionmaker[Session]
+) -> None:
+    headers = login(client, "alice.park")
+    bob = employee_id(factory, "bob.chen")
+
+    assert client.get(f"/employees/{bob}", headers=headers).status_code == 403
+    assert client.get(f"/employees/{bob}/salary?reason=curious", headers=headers).status_code == 403
+    assert actions(factory).count("access.denied") == 2  # committed despite the failed requests
+
+
+def test_manager_sees_team_and_approvals_but_not_salaries(
+    client: TestClient, factory: sessionmaker[Session]
+) -> None:
+    headers = login(client, "bob.chen")
+    alice = employee_id(factory, "alice.park")
+
+    assert {e["name"] for e in client.get("/team", headers=headers).json()} >= {
+        "Alice Park",
+        "Hira Khan",
+    }
+    assert len(client.get("/team/approvals", headers=headers).json()) == 2
+    assert client.get(f"/employees/{alice}", headers=headers).status_code == 200
+    assert (
+        client.get(f"/employees/{alice}/salary?reason=raise planning", headers=headers).status_code
+        == 403
+    )
+
+
+def test_hr_admin_reads_any_salary_with_a_recorded_reason(
+    client: TestClient, factory: sessionmaker[Session]
+) -> None:
+    headers = login(client, "carol.reyes")
+    hira = employee_id(factory, "hira.khan")
+
+    missing_reason = client.get(f"/employees/{hira}/salary", headers=headers)
+    ok = client.get(f"/employees/{hira}/salary?reason=annual review", headers=headers)
+
+    assert missing_reason.status_code == 422
+    assert ok.status_code == 200 and ok.json()["currency"] == "PKR"
+    with factory() as s:
+        entry = s.scalar(select(AuditLog).where(AuditLog.action == "salary.read"))
+        assert entry is not None and entry.details == {"reason": "annual review"}

@@ -6,13 +6,22 @@ from typing import Any
 
 from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from hrm.db.models import Base
 
 
 def make_engine(url: str, *, echo: bool = False) -> Engine:
     if url.startswith("sqlite"):
-        engine = create_engine(url, echo=echo)
+        in_memory = url in ("sqlite://", "sqlite:///:memory:")
+        engine = create_engine(
+            url,
+            echo=echo,
+            # In-memory: one shared connection, so every thread (e.g. API worker threads in
+            # tests) sees the same database instead of an empty one per thread.
+            poolclass=StaticPool if in_memory else None,
+            connect_args={"check_same_thread": False},
+        )
 
         @event.listens_for(engine, "connect")
         def _enable_foreign_keys(dbapi_connection: Any, _record: Any) -> None:

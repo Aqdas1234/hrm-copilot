@@ -75,6 +75,10 @@ class Settings(BaseSettings):
     # --- HR database (Part B) ---
     # SQLAlchemy URL; a secret because it contains the password. Tests use SQLite in memory.
     database_url: SecretStr = SecretStr("mysql+pymysql://hrm:hrm@127.0.0.1:3306/hrm")
+    # Signs login tokens (JWT). No default on purpose: without it, login is disabled (503).
+    # Generate one with: python -c "import secrets; print(secrets.token_urlsafe(48))"
+    jwt_secret: SecretStr | None = None
+    jwt_ttl_minutes: int = Field(default=60, gt=0)
     # Password of the scripted demo users created by `hrm db seed` (demo data only).
     demo_password: SecretStr = SecretStr("hrm-demo-123")
 

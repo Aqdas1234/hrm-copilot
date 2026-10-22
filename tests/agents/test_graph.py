@@ -3,7 +3,9 @@
 from typing import Any
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, tool
+from langgraph.checkpoint.memory import InMemorySaver
 from sqlalchemy.orm import Session
 
 from hrm.agents.graph import DEFAULT_LIMITS, LIMIT_REPLY, UNTRUSTED_NOTE, AgentLimits, build_agent
@@ -22,8 +24,9 @@ def run(
     message: str,
     limits: AgentLimits = DEFAULT_LIMITS,
 ) -> list[AnyMessage]:
-    agent = build_agent(llm, tools, ALICE_PROMPT, limits)
-    result: dict[str, Any] = agent.invoke({"messages": [HumanMessage(content=message)]})
+    agent = build_agent(llm, tools, ALICE_PROMPT, limits, checkpointer=InMemorySaver())
+    config: RunnableConfig = {"configurable": {"thread_id": "t"}}
+    result: dict[str, Any] = agent.invoke({"messages": [HumanMessage(content=message)]}, config)
     return list(result["messages"])
 
 

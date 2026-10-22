@@ -47,6 +47,7 @@ from hrm.evaluation.agent import (
     CaseScore,
     ExpectedAction,
     agent_metrics,
+    all_messages,
     load_cases,
     score_case,
 )
@@ -157,8 +158,8 @@ def run_case(case: AgentCase, settings: Settings, policies: PolicySearch) -> Cas
             error = f"{type(exc).__name__}: {exc}"
         seconds = time.perf_counter() - start
 
-        state = graph.get_state({"configurable": {"thread_id": thread}}).values
-        messages = state.get("messages", [])
+        snapshot = graph.get_state({"configurable": {"thread_id": thread}}, subgraphs=True)
+        state, messages = snapshot.values, all_messages(snapshot)
         output = "\n".join(
             [m.text for m in messages if isinstance(m, AIMessage) and not m.tool_calls]
             + [r.text for r in replies if r.kind == "confirm"]

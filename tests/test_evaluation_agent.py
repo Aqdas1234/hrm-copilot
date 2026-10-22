@@ -1,7 +1,12 @@
 """Agent evaluation: the scoring rules, and the dataset's consistency with the real tools."""
 
+from langchain_core.messages import AIMessage, AnyMessage
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.memory import InMemorySaver
 from sqlalchemy.orm import Session
 
+from hrm.agents.graph import build_agent
+from hrm.agents.runner import AgentRunner
 from hrm.core.config import PROJECT_ROOT
 from hrm.db.seed import seed
 from hrm.evaluation.agent import (
@@ -9,11 +14,13 @@ from hrm.evaluation.agent import (
     CaseOutcome,
     ExpectedAction,
     agent_metrics,
+    all_messages,
     load_cases,
     same_value,
     score_case,
 )
 from tests.agents.helpers import TODAY, tools_for
+from tests.fakes import ScriptedChatModel, tool_call, wants_tools
 
 DATASET = PROJECT_ROOT / "evals" / "datasets" / "agent_cases.jsonl"
 
@@ -89,3 +96,24 @@ def test_the_dataset_names_only_real_tools_and_users(session: Session) -> None:
         assert named <= all_tools, (c.id, named - all_tools)
         assert tools_for(session, c.user), c.id
     assert {c.kind for c in cases} == {"tools", "actions", "attacks"}
+
+
+def test_a_proposed_action_waiting_for_confirmation_is_visible(session: Session) -> None:
+    seed(session, today=TODAY, demo_password="x")
+    llm = ScriptedChatModel(
+        script=[wants_tools(tool_call("cancel_my_leave_request", request_id=2))]
+    )
+    graph = build_agent(
+        llm, list(tools_for(session, "alice.park").values()), "p", checkpointer=InMemorySaver()
+    )
+    assert AgentRunner(graph).ask("t", "cancel it").kind == "confirm"
+    config: RunnableConfig = {"configurable": {"thread_id": "t"}}
+
+    def requested(messages: list[AnyMessage]) -> list[str]:
+        return [c["name"] for m in messages if isinstance(m, AIMessage) for c in m.tool_calls]
+
+    # the paused subgraph holds the call; the parent graph does not have it yet
+    assert requested(graph.get_state(config).values["messages"]) == []
+    assert requested(all_messages(graph.get_state(config, subgraphs=True))) == [
+        "cancel_my_leave_request"
+    ]

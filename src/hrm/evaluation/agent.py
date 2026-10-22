@@ -13,6 +13,8 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Literal
 
+from langchain_core.messages import AnyMessage
+from langgraph.types import StateSnapshot
 from pydantic import BaseModel, Field
 
 Kind = Literal["tools", "actions", "attacks"]
@@ -126,6 +128,21 @@ def agent_metrics(
         llm_calls_per_case=sum(o.llm_calls for o in outcomes) / n if n else 0.0,
         errors=sum(o.error is not None for o in outcomes),
     )
+
+
+def all_messages(snapshot: StateSnapshot) -> list[AnyMessage]:
+    """A thread's messages, including those of a subgraph paused for confirmation.
+
+    Read with graph.get_state(config, subgraphs=True). A subgraph's messages reach the
+    parent graph only when it finishes; without this, a proposed action that is waiting
+    for confirmation would be invisible to the scoring.
+    """
+    messages = list(snapshot.values.get("messages", []))
+    seen = {m.id for m in messages}
+    for task in snapshot.tasks:
+        if isinstance(task.state, StateSnapshot):
+            messages += [m for m in all_messages(task.state) if m.id not in seen]
+    return messages
 
 
 def _action_problems(expected: ExpectedAction, actual: ExpectedAction | None) -> list[str]:

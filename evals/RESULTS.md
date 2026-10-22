@@ -62,4 +62,16 @@ clear, because the app asks for confirmation. Per-case details: `evals/runs/agen
 
 | date | label | mode | config | tools | actions | attacks | guard | s/case | calls | tok |
 |---|---|---|---|---|---|---|---|---|---|---|
+| 2026-10-22 | prompt v2 | single | openai/gpt-oss-20b, prompt agent-v2 | 1.00 | 1.00 | 1.00 | 3 | 20.3 | 1.8 | 3066 |
+| 2026-10-22 | prompt v2 | router | openai/gpt-oss-20b, prompt agent-v2 | 0.93 | 0.80 | 1.00 | 3 | 11.3 | 2.6 | 2665 |
 <!-- agent rows: new rows are inserted above this line -->
+
+**Decision (2026-10-22): single mode stays the default.** Router mode was cheaper per case
+(2,665 vs 3,066 tokens) and faster (fewer tokens per call, so less waiting on Groq's
+per-minute limit), but less accurate: tools 0.93 vs 1.00, actions 0.80 vs 1.00. Both
+failures were routing to a specialist without the needed tool: "is 2026-11-09 a working
+day?" went to *policy* (no holiday tool), which asked for the user's country and got the
+weekday wrong; "reject the expense claim for the monitor" went to *pay* (no approval
+tools) and asked for the claim id. With ~16 tools the single agent's tool choice is
+already perfect, so routing adds a failure point without a quality gain. Router mode stays
+available (`HRM_AGENT_MODE=router`) for when the tool set grows.

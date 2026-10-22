@@ -4,25 +4,16 @@ Today: Thursday 2026-10-22. Alice (US) and Hira (PK) report to Bob; Carol is HR 
 """
 
 import json
-from datetime import date
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 from langchain_core.tools import BaseTool
 from sqlalchemy.orm import Session
 
-from hrm.agents.tools import ToolDeps, build_tools, is_write
-from hrm.auth.context import UserContext
-from hrm.db import repository as repo
+from hrm.agents.tools import is_write
 from hrm.db.models import RequestStatus
-from hrm.db.seed import seed
-from hrm.integrations.mock_payroll import create_mock_payroll_app
-from hrm.integrations.payroll import PayrollClient
-from hrm.rag.models import Category, Chunk, RetrievedChunk
-from tests.fakes import FakeHolidays, FakeRates
+from tests.agents.helpers import tools_for
 
-TODAY = date(2026, 10, 22)
 SELF_TOOLS = {
     "search_hr_policies",
     "get_my_profile",
@@ -50,42 +41,6 @@ WRITE_TOOLS = {
     "decide_leave_request",
     "decide_expense_claim",
 }
-
-
-class FakePolicies:
-    def search(
-        self, query: str, k: int | None = None, *, category: Category | None = None
-    ) -> list[RetrievedChunk]:
-        chunk = Chunk(
-            chunk_id="time-off-policy:pto-ground-rules:0",
-            doc_id="time-off-policy",
-            category="time_off",
-            audience="all",
-            section_path=("PTO policy", "PTO ground rules"),
-            text="Inform your Manager a minimum of 5 business days before your leave.",
-            token_count=12,
-        )
-        return [RetrievedChunk(chunk=chunk, score=1.0, rank=1)]
-
-
-@pytest.fixture
-def db(session: Session) -> Session:
-    seed(session, today=TODAY, demo_password="x")
-    return session
-
-
-def tools_for(db: Session, name: str) -> dict[str, BaseTool]:
-    user = repo.get_user_by_email(db, f"{name}@example.com")
-    assert user is not None
-    salaries = {e.employee_code: (15_000_000, "USD") for e in [user.employee]}
-    payroll = PayrollClient(
-        TestClient(create_mock_payroll_app(salaries, failure_rate=0, today=TODAY)),
-        base_url="http://payroll.test",
-    )
-    deps = ToolDeps(
-        db, UserContext.from_user(user), FakePolicies(), FakeHolidays(), FakeRates(), payroll, TODAY
-    )
-    return {t.name: t for t in build_tools(deps)}
 
 
 def call(tools: dict[str, BaseTool], name: str, **args: Any) -> Any:

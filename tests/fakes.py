@@ -3,9 +3,19 @@
 import hashlib
 import math
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import date
 from decimal import Decimal
+from itertools import count
+from typing import Any
+
+from langchain_core.callbacks import CallbackManagerForLLMRun
+from langchain_core.language_models import BaseChatModel, LanguageModelInput
+from langchain_core.messages import AIMessage, BaseMessage, ToolCall
+from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.runnables import Runnable
+from langchain_core.tools import BaseTool
+from pydantic import Field
 
 from hrm.db.models import HolidaySource, RateSource
 from hrm.integrations.currency import Conversion
@@ -125,3 +135,51 @@ class FakeRates:
         rate = FAKE_RATES[currency]
         source = None if currency == "USD" else RateSource.API
         return Conversion(amount_cents, currency, int(amount_cents * rate), rate, on, source)
+
+
+class ScriptedChatModel(BaseChatModel):
+    """Replies with a fixed script of AI messages, one per call, and records what it saw.
+
+    Lets agent-graph tests run the real graph and real tools without an LLM:
+    the script plays the model's decisions ("call this tool", then "answer").
+    """
+
+    script: list[AIMessage]
+    seen: list[list[BaseMessage]] = Field(default_factory=list)
+    bound_tools: list[str] = Field(default_factory=list)
+
+    @property
+    def _llm_type(self) -> str:
+        return "scripted"
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **_: Any,
+    ) -> ChatResult:
+        self.seen.append(list(messages))
+        if not self.script:
+            raise AssertionError("The agent called the model more often than scripted.")
+        return ChatResult(generations=[ChatGeneration(message=self.script.pop(0))])
+
+    def bind_tools(
+        self,
+        tools: Sequence[dict[str, Any] | type | Callable[..., Any] | BaseTool],
+        **_: Any,
+    ) -> Runnable[LanguageModelInput, AIMessage]:
+        self.bound_tools = [t.name for t in tools if isinstance(t, BaseTool)]
+        return self
+
+
+_call_ids = count(1)
+
+
+def tool_call(name: str, **args: Any) -> ToolCall:
+    return ToolCall(name=name, args=args, id=f"call_{next(_call_ids)}", type="tool_call")
+
+
+def wants_tools(*calls: ToolCall) -> AIMessage:
+    """A model turn that asks for tools instead of answering."""
+    return AIMessage(content="", tool_calls=list(calls))

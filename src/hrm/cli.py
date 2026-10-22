@@ -14,6 +14,7 @@ from hrm.core.config import get_settings
 from hrm.core.errors import HRMError
 from hrm.core.llm import get_answer_model, get_fast_model
 from hrm.core.logging import configure_logging, get_logger
+from hrm.db.session import create_schema, make_engine
 from hrm.rag.chunking import chunk_document, tiktoken_counter
 from hrm.rag.cleaning import clean_document
 from hrm.rag.embeddings import FastEmbedEmbedder
@@ -202,3 +203,19 @@ def ui(port: int = typer.Option(8501, help="Port for the web page.")) -> None:
     page = Path(__file__).parent / "ui" / "streamlit_app.py"
     command = [sys.executable, "-m", "streamlit", "run", str(page), "--server.port", str(port)]
     raise typer.Exit(subprocess.run(command, check=False).returncode)
+
+
+db_app = typer.Typer(help="HR database commands.", no_args_is_help=True)
+app.add_typer(db_app, name="db")
+
+
+@db_app.command("init")
+def db_init() -> None:
+    """Create the HR database tables (safe to re-run: existing tables are kept)."""
+    engine = make_engine(get_settings().database_url.get_secret_value())
+    try:
+        create_schema(engine)
+    except Exception as exc:  # unreachable server, wrong credentials, missing database
+        typer.echo(f"Error: could not set up the database: {type(exc).__name__}: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"Database ready: {engine.url.render_as_string(hide_password=True)}")

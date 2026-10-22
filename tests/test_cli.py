@@ -188,3 +188,27 @@ def test_ui_runs_streamlit_on_the_page(monkeypatch: pytest.MonkeyPatch) -> None:
     assert command[1:4] == ["-m", "streamlit", "run"]
     assert command[4].endswith("ui/streamlit_app.py")
     assert command[-2:] == ["--server.port", "8600"]
+
+
+def test_db_init_creates_the_tables(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("HRM_DATABASE_URL", f"sqlite:///{tmp_path / 'hr.db'}")
+    get_settings.cache_clear()
+
+    result = runner.invoke(app, ["db", "init"])
+    get_settings.cache_clear()
+
+    assert result.exit_code == 0, result.output
+    assert "Database ready" in result.stdout
+    assert (tmp_path / "hr.db").exists()
+
+
+def test_db_init_reports_an_unreachable_server(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HRM_DATABASE_URL", "mysql+pymysql://u:secret@127.0.0.1:1/none")
+    get_settings.cache_clear()
+
+    result = runner.invoke(app, ["db", "init"])
+    get_settings.cache_clear()
+
+    assert result.exit_code == 1
+    assert "could not set up the database" in result.output
+    assert "secret" not in result.output  # the password never appears in error output

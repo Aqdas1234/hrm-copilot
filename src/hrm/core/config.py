@@ -72,6 +72,10 @@ class Settings(BaseSettings):
     log_level: LogLevel = "INFO"
     log_format: LogFormat = "console"
 
+    # --- HR database (Part B) ---
+    # SQLAlchemy URL; a secret because it contains the password. Tests use SQLite in memory.
+    database_url: SecretStr = SecretStr("mysql+pymysql://hrm:hrm@127.0.0.1:3306/hrm")
+
     # --- UI ---
     api_url: str = "http://127.0.0.1:8000"  # where the Streamlit page finds the API
 

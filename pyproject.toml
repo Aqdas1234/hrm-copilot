@@ -27,6 +27,9 @@ dependencies = [
     "fastapi==0.156.8",
     "uvicorn==0.54.0",
     "streamlit==1.66.0",
+    "sqlalchemy==2.1.6",
+    "pymysql==1.2.3",
+    "cryptography==50.0.2",  # PyMySQL needs it for MySQL 8 authentication
 ]
 
 # Dev tools as a dependency group (PEP 735): `uv sync` and `uv run` install it by default,
@@ -84,9 +87,10 @@ warn_required_dynamic_aliases = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # -ra: summary of skips/failures; strict flags turn typos in markers/config into errors.
-addopts = ["-ra", "--strict-markers", "--strict-config", "-m", "not network"]
+addopts = ["-ra", "--strict-markers", "--strict-config", "-m", "not network and not mysql"]
 markers = [
     "network: downloads or runs real models; skipped by default, run with: pytest -m network",
+    "mysql: needs a MySQL server at HRM_TEST_DATABASE_URL; run with: pytest -m mysql",
 ]
 xfail_strict = true
 

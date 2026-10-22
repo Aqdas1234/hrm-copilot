@@ -22,9 +22,10 @@ from hrm.core.config import get_settings
 from hrm.core.errors import HRMError
 from hrm.core.llm import get_answer_model, get_fast_model
 from hrm.core.logging import configure_logging, get_logger
-from hrm.db.models import Base, Compensation, Employee
+from hrm.db.migrate import current_revision, drop_everything, upgrade
+from hrm.db.models import Compensation, Employee
 from hrm.db.seed import DatabaseNotEmptyError, seed
-from hrm.db.session import create_schema, make_engine, session_scope
+from hrm.db.session import make_engine, session_scope
 from hrm.integrations.mock_payroll import create_mock_payroll_app
 from hrm.rag.chunking import chunk_document, tiktoken_counter
 from hrm.rag.cleaning import clean_document
@@ -279,16 +280,19 @@ db_app = typer.Typer(help="HR database commands.", no_args_is_help=True)
 app.add_typer(db_app, name="db")
 
 
-@db_app.command("init")
-def db_init() -> None:
-    """Create the HR database tables (safe to re-run: existing tables are kept)."""
+@db_app.command("upgrade")
+@db_app.command("init", hidden=True)  # the name before migrations existed
+def db_upgrade() -> None:
+    """Create or update the HR database tables to the latest schema (migrations)."""
     engine = make_engine(get_settings().database_url.get_secret_value())
     try:
-        create_schema(engine)
+        upgrade(engine)
+        revision = current_revision(engine)
     except Exception as exc:  # unreachable server, wrong credentials, missing database
         typer.echo(f"Error: could not set up the database: {type(exc).__name__}: {exc}", err=True)
         raise typer.Exit(code=1) from exc
-    typer.echo(f"Database ready: {engine.url.render_as_string(hide_password=True)}")
+    url = engine.url.render_as_string(hide_password=True)
+    typer.echo(f"Database ready at schema version {revision}: {url}")
 
 
 @db_app.command("seed")
@@ -300,8 +304,8 @@ def db_seed(
     engine = make_engine(settings.database_url.get_secret_value())
     try:
         if reset:
-            Base.metadata.drop_all(engine)
-        create_schema(engine)
+            drop_everything(engine)
+        upgrade(engine)
         with session_scope(sessionmaker(engine)) as session:
             summary = seed(
                 session,

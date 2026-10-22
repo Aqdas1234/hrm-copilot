@@ -10,9 +10,14 @@ from typing import get_args
 import typer
 import uvicorn
 from sqlalchemy import select
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from hrm import __version__
+from hrm.agents.factory import AgentFactory
+from hrm.agents.memory import open_memory, thread_id
+from hrm.agents.runner import AgentReply
+from hrm.auth.context import UserContext
+from hrm.auth.login import authenticate
 from hrm.core.config import get_settings
 from hrm.core.errors import HRMError
 from hrm.core.llm import get_answer_model, get_fast_model
@@ -209,6 +214,65 @@ def ui(port: int = typer.Option(8501, help="Port for the web page.")) -> None:
     page = Path(__file__).parent / "ui" / "streamlit_app.py"
     command = [sys.executable, "-m", "streamlit", "run", str(page), "--server.port", str(port)]
     raise typer.Exit(subprocess.run(command, check=False).returncode)
+
+
+@app.command()
+def chat(
+    email: str = typer.Option(..., "--email", prompt=True, help="A demo user's email."),
+    conversation: str = typer.Option("cli", "--conversation", help="Continue this conversation."),
+) -> None:
+    """Chat with the HR agent as a demo user (real database, Groq and policy index)."""
+    settings = get_settings()
+    password = typer.prompt("Password", hide_input=True)
+    sessions = sessionmaker(make_engine(settings.database_url.get_secret_value()))
+    try:
+        with session_scope(sessions) as session:
+            user = UserContext.from_user(authenticate(session, email, password))
+    except HRMError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if ChromaStore.from_settings(settings).count() == 0:
+        typer.echo("Note: the policy index is empty; run `hrm ingest` for policy answers.")
+
+    with open_memory(settings.memory_db_path) as saver:
+        factory = AgentFactory.from_settings(settings, saver)
+        thread = thread_id(user, conversation)
+        typer.echo("Ask an HR question (empty line to quit).\n")
+        reply: AgentReply | None = None
+        while True:
+            if reply is not None and reply.kind == "confirm":
+                approved = typer.confirm("Go ahead?", default=False)
+                reply = _chat_turn(sessions, factory, user, thread, approved=approved)
+            else:
+                text = typer.prompt("you", default="", show_default=False)
+                if not text.strip():
+                    break
+                reply = _chat_turn(sessions, factory, user, thread, message=text)
+            if reply is not None:
+                typer.echo(f"\nhrm: {reply.text}\n")
+
+
+def _chat_turn(
+    sessions: sessionmaker[Session],
+    factory: AgentFactory,
+    user: UserContext,
+    thread: str,
+    *,
+    message: str | None = None,
+    approved: bool = False,
+) -> AgentReply | None:
+    """One turn = one transaction, like one HTTP request: committed only if it succeeds.
+    With a message it asks; without one it answers the waiting confirmation."""
+    try:
+        with session_scope(sessions) as session:
+            runner = factory.runner(session, user)
+            if message is not None:
+                return runner.ask(thread, message)
+            return runner.resume(thread, approved=approved)
+    except Exception as exc:  # keep the chat alive on LLM/network errors; nothing is committed
+        log.warning("chat.turn_failed", error=type(exc).__name__)
+        typer.echo(f"\nError: {type(exc).__name__}: {exc}\n", err=True)
+        return None
 
 
 db_app = typer.Typer(help="HR database commands.", no_args_is_help=True)

@@ -33,6 +33,12 @@ class FakePolicies:
         return [RetrievedChunk(chunk=chunk, score=1.0, rank=1)]
 
 
+def user_ctx(db: Session, name: str) -> UserContext:
+    user = repo.get_user_by_email(db, f"{name}@example.com")
+    assert user is not None
+    return UserContext.from_user(user)
+
+
 def tools_for(db: Session, name: str) -> dict[str, BaseTool]:
     user = repo.get_user_by_email(db, f"{name}@example.com")
     assert user is not None

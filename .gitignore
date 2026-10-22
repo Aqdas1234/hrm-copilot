@@ -31,3 +31,6 @@ node_modules/
 
 # Per-question evaluation outputs (summaries go to evals/RESULTS.md)
 evals/runs/
+
+# Agent conversation memory (B5.4)
+data/memory.sqlite*

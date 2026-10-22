@@ -90,6 +90,16 @@ class Settings(BaseSettings):
     http_timeout_s: float = Field(default=10.0, gt=0)
     http_retries: int = Field(default=3, ge=1)  # attempts, including the first
 
+    # --- Agent (Part B) ---
+    # Conversations live in their own SQLite file, apart from the HR database: chat history
+    # is not HR data, and no HR tool or query can reach it.
+    memory_db_path: Path = PROJECT_ROOT / "data" / "memory.sqlite"
+    agent_max_steps: int = Field(default=8, gt=0)  # model calls per user message
+    agent_max_tool_calls: int = Field(default=6, gt=0)  # tool runs per user message
+    # History the model sees per call (approximate tokens). Older turns stay saved but are
+    # not sent: keeps each call within Groq's free-tier tokens-per-minute limit.
+    agent_history_tokens: int = Field(default=3000, gt=0)
+
     # --- UI ---
     api_url: str = "http://127.0.0.1:8000"  # where the Streamlit page finds the API
 

@@ -30,9 +30,10 @@ dependencies = [
     "streamlit==1.66.0",
     "sqlalchemy==2.1.6",
     "pymysql==1.2.3",
-    "cryptography==50.0.2",  # PyMySQL needs it for MySQL 8 authentication
-    "faker==40.43.0",  # demo data for `hrm db seed`
+    "cryptography==50.0.2", # PyMySQL needs it for MySQL 8 authentication
+    "faker==40.43.0", # demo data for `hrm db seed`
     "pyjwt==2.15.1",
+    "langgraph-checkpoint-sqlite==3.1.2",
 ]
 
 # Dev tools as a dependency group (PEP 735): `uv sync` and `uv run` install it by default,

@@ -23,6 +23,8 @@ Limits, per user message:
 - max_steps: model calls. Stops a model that keeps calling tools without converging.
 - max_tool_calls: tool executions. Bounds cost and side effects of one message.
 - max_tool_output_chars: tool text sent back to the model. Bounds tokens per step.
+- max_history_tokens: earlier turns sent with each model call. The full conversation stays
+  in the checkpointer; the model sees the current turn plus as many recent turns as fit.
 """
 
 from collections.abc import Sequence
@@ -38,6 +40,7 @@ from langchain_core.messages import (
     ToolCall,
     ToolMessage,
 )
+from langchain_core.messages.utils import count_tokens_approximately, trim_messages
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
@@ -49,6 +52,7 @@ from langgraph.types import Command, interrupt
 from hrm.agents.guardrails import check_input, check_output, looks_like_injection
 from hrm.agents.prompts import PROMPT_VERSION
 from hrm.agents.tools import is_write
+from hrm.core.config import Settings
 from hrm.core.errors import ConfigurationError
 from hrm.core.logging import get_logger
 
@@ -67,6 +71,15 @@ class AgentLimits:
     max_steps: int = 8
     max_tool_calls: int = 6
     max_tool_output_chars: int = 8_000
+    max_history_tokens: int = 3_000
+
+    @classmethod
+    def from_settings(cls, settings: Settings) -> "AgentLimits":
+        return cls(
+            max_steps=settings.agent_max_steps,
+            max_tool_calls=settings.agent_max_tool_calls,
+            max_history_tokens=settings.agent_history_tokens,
+        )
 
 
 DEFAULT_LIMITS = AgentLimits()
@@ -110,7 +123,8 @@ def build_agent(
         return {**reset, "messages": [HumanMessage(content=check.text, id=message.id)]}
 
     def agent(state: AgentState) -> AgentState:
-        reply = model.invoke([SystemMessage(content=system_prompt), *state["messages"]])
+        history = recent_history(state["messages"], limits.max_history_tokens)
+        reply = model.invoke([SystemMessage(content=system_prompt), *history])
         return {"messages": [reply], "steps": state.get("steps", 0) + 1}
 
     def tools_node(state: AgentState) -> AgentState:
@@ -198,6 +212,28 @@ def build_agent(
 def _pending_calls(state: AgentState) -> list[ToolCall]:
     last = state["messages"][-1]
     return list(last.tool_calls) if isinstance(last, AIMessage) else []
+
+
+def recent_history(messages: Sequence[AnyMessage], max_tokens: int) -> list[AnyMessage]:
+    """The current turn in full, plus the most recent earlier turns that fit the budget.
+
+    Earlier history is cut so it starts at a user message: a tool result is never sent
+    without the tool call that produced it (the API would reject that).
+    """
+    starts = [i for i, m in enumerate(messages) if isinstance(m, HumanMessage)]
+    current = starts[-1] if starts else 0
+    turn = list(messages[current:])
+    budget = max_tokens - count_tokens_approximately(turn)
+    if budget <= 0 or current == 0:
+        return turn
+    earlier = trim_messages(
+        messages[:current],
+        max_tokens=budget,
+        token_counter=count_tokens_approximately,
+        strategy="last",
+        start_on="human",
+    )
+    return [*earlier, *turn]  # type: ignore[list-item]
 
 
 def _screen(message: AnyMessage, max_chars: int) -> AnyMessage:

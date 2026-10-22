@@ -164,3 +164,18 @@ def test_summaries_fall_back_when_an_argument_is_missing() -> None:
     assert describe_action("request_leave", {"leave_type": "pto"}) == (
         "Run request_leave with {'leave_type': 'pto'}"
     )
+
+
+def test_a_confirmed_action_is_kept_even_if_the_reply_fails(
+    db: Session, saver: InMemorySaver
+) -> None:
+    before = leave_requests(db)
+    runner(db, saver, booking_script()).ask(THREAD, "Book PTO Nov 10-11")
+
+    broken = ScriptedChatModel(script=[])  # the model call after the tool fails
+    with pytest.raises(AssertionError):
+        runner(db, saver, broken).resume(THREAD, approved=True)
+    db.rollback()  # what the API does with the failed request
+
+    # the conversation says the tool ran, and the database agrees
+    assert leave_requests(db) == before + 1

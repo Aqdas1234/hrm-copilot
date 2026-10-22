@@ -44,15 +44,20 @@ class AgentFactory:
 
     @classmethod
     def from_settings(
-        cls, settings: Settings, checkpointer: BaseCheckpointSaver[str]
+        cls,
+        settings: Settings,
+        checkpointer: BaseCheckpointSaver[str],
+        *,
+        policies: PolicySearch | None = None,
     ) -> "AgentFactory":
+        """`policies`: an already loaded RAGService (the API shares its own), else a new one."""
         http = httpx.Client(timeout=settings.http_timeout_s)
         return cls(
             settings=settings,
             # The small model decides which tools to call; policy answers inside
             # search_hr_policies come from retrieval. B7 measures whether this is enough.
             llm=get_fast_model(settings),
-            policies=RAGService.from_settings(settings),
+            policies=policies or RAGService.from_settings(settings),
             http=http,
             payroll=PayrollClient(
                 http, base_url=settings.payroll_api_url, attempts=settings.http_retries

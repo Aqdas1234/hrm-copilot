@@ -144,7 +144,7 @@ class ScriptedChatModel(BaseChatModel):
     the script plays the model's decisions ("call this tool", then "answer").
     """
 
-    script: list[AIMessage]
+    script: list[Any]  # AIMessages to return, or exceptions to raise (a failing API)
     seen: list[list[BaseMessage]] = Field(default_factory=list)
     bound_tools: list[str] = Field(default_factory=list)
 
@@ -162,7 +162,10 @@ class ScriptedChatModel(BaseChatModel):
         self.seen.append(list(messages))
         if not self.script:
             raise AssertionError("The agent called the model more often than scripted.")
-        return ChatResult(generations=[ChatGeneration(message=self.script.pop(0))])
+        step = self.script.pop(0)
+        if isinstance(step, BaseException):
+            raise step
+        return ChatResult(generations=[ChatGeneration(message=step)])
 
     def bind_tools(
         self,
@@ -183,3 +186,19 @@ def tool_call(name: str, **args: Any) -> ToolCall:
 def wants_tools(*calls: ToolCall) -> AIMessage:
     """A model turn that asks for tools instead of answering."""
     return AIMessage(content="", tool_calls=list(calls))
+
+
+class _EmptyListResponse:
+    status_code = 200
+
+    def json(self) -> list[object]:
+        return []
+
+
+class StubHTTP:
+    """The holiday API answers "no holidays"; any other call is a test failure."""
+
+    def get(self, url: str) -> _EmptyListResponse:
+        if "/PublicHolidays/" not in url:
+            raise AssertionError(f"unexpected HTTP call: {url}")
+        return _EmptyListResponse()

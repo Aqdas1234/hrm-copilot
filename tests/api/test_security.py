@@ -21,6 +21,8 @@ from tests.api.test_app import FakeService
 
 PUBLIC = "public"
 AUTHENTICATED = "authenticated: result depends on the caller's role"
+# Conversations are keyed by the logged-in user; tested in test_chat.py.
+OWN_CONVERSATION = "authenticated: only the caller's own conversations"
 
 # Every endpoint, and who may call it. Role-level detail is in MATRIX below.
 ACCESS_RULES = {
@@ -36,6 +38,9 @@ ACCESS_RULES = {
     ("GET", "/team/approvals"): AUTHENTICATED,
     ("GET", "/employees/{employee_id}"): AUTHENTICATED,
     ("GET", "/employees/{employee_id}/salary"): AUTHENTICATED,
+    ("POST", "/chat/{conversation_id}/messages"): OWN_CONVERSATION,
+    ("POST", "/chat/{conversation_id}/confirm"): OWN_CONVERSATION,
+    ("GET", "/chat/{conversation_id}"): OWN_CONVERSATION,
 }
 
 ACTORS = ["anonymous", "alice", "bob", "carol"]

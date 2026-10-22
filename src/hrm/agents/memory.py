@@ -16,7 +16,8 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from hrm.auth.context import UserContext
 from hrm.core.errors import HRMError
 
-_CONVERSATION_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+CONVERSATION_ID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
+_CONVERSATION_ID = re.compile(CONVERSATION_ID_PATTERN)
 
 
 class InvalidConversationError(HRMError):

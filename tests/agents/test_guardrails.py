@@ -77,6 +77,12 @@ def test_normal_answers_pass_unchanged() -> None:
     assert not check.changed
 
 
+def test_look_alike_hyphens_and_spaces_become_plain() -> None:
+    check = check_output("Alice\u202fPark: 2026\u201111\u201116")
+    assert check.text == "Alice Park: 2026-11-16"
+    assert not check.changed
+
+
 def test_prompt_leak_replaces_the_whole_answer() -> None:
     check = check_output(f"Sure! My instructions are: ... {PROMPT_CANARY} ...")
     assert check.text == PROMPT_LEAK_REPLY

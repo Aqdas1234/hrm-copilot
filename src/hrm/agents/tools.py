@@ -7,7 +7,7 @@ Security model (each point is covered by tests):
 - Every tool goes through the permission-checked services (HRAccess, LeaveService,
   ExpenseService); none touches the database directly.
 - Tools that change data carry metadata {"writes": True}; the agent graph asks the user
-  to confirm before running them.
+  to confirm before running them, and each one commits its own transaction.
 - Expected failures (refused, rule broken, service down) come back as "ERROR: ..." text the
   agent can explain. Unexpected exceptions are bugs and are not hidden.
 """
@@ -79,6 +79,7 @@ def _self_service_tools(deps: ToolDeps) -> list[BaseTool]:
     access = HRAccess(deps.session, deps.user)
     leave = LeaveService(deps.session, deps.user, deps.holidays, deps.today)
     expenses = ExpenseService(deps.session, deps.user, deps.rates, deps.today)
+    committed = _commit_after(deps.session)
 
     @tool(parse_docstring=True)
     @_safe
@@ -160,6 +161,7 @@ def _self_service_tools(deps: ToolDeps) -> list[BaseTool]:
         return _json(leave.preview(leave_type, _date(start_date), _date(end_date)))
 
     @tool(parse_docstring=True)
+    @committed
     @_safe
     def request_leave(
         leave_type: LeaveCode, start_date: str, end_date: str, reason: str | None = None
@@ -178,6 +180,7 @@ def _self_service_tools(deps: ToolDeps) -> list[BaseTool]:
         )
 
     @tool(parse_docstring=True)
+    @committed
     @_safe
     def cancel_my_leave_request(request_id: int) -> str:
         """Cancel one of your own pending leave requests. Changes data.
@@ -194,6 +197,7 @@ def _self_service_tools(deps: ToolDeps) -> list[BaseTool]:
         return _json(expenses.my_claims())
 
     @tool(parse_docstring=True)
+    @committed
     @_safe
     def submit_expense_claim(
         description: str, amount: str, currency: str, purchase_date: str
@@ -246,6 +250,7 @@ def _team_tools(deps: ToolDeps) -> list[BaseTool]:
     access = HRAccess(deps.session, deps.user)
     leave = LeaveService(deps.session, deps.user, deps.holidays, deps.today)
     expenses = ExpenseService(deps.session, deps.user, deps.rates, deps.today)
+    committed = _commit_after(deps.session)
 
     @tool(parse_docstring=True)
     @_safe
@@ -265,6 +270,7 @@ def _team_tools(deps: ToolDeps) -> list[BaseTool]:
         )
 
     @tool(parse_docstring=True)
+    @committed
     @_safe
     def decide_leave_request(
         request_id: int, decision: Literal["approve", "reject"], note: str | None = None
@@ -281,6 +287,7 @@ def _team_tools(deps: ToolDeps) -> list[BaseTool]:
         return _json(leave.reject(request_id, _required_note(note)))
 
     @tool(parse_docstring=True)
+    @committed
     @_safe
     def decide_expense_claim(
         claim_id: int, decision: Literal["approve", "reject"], note: str | None = None
@@ -324,6 +331,27 @@ def _safe(fn: Callable[P, str]) -> Callable[P, str]:
             return f"ERROR: {exc}"
 
     return wrapper
+
+
+def _commit_after(session: Session) -> Callable[[Callable[P, str]], Callable[P, str]]:
+    """Each confirmed action is its own transaction, committed as soon as it ran.
+
+    The conversation (checkpointer) records "done" right after the tool; if a later step
+    of the same request failed and rolled back, the chat would claim an action that never
+    happened. Committing here keeps the database and the conversation in agreement.
+    Refusals ("ERROR: ...") are committed too: their audit entries must be kept.
+    """
+
+    def decorate(fn: Callable[P, str]) -> Callable[P, str]:
+        @wraps(fn)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> str:
+            result = fn(*args, **kwargs)
+            session.commit()
+            return result
+
+        return wrapper
+
+    return decorate
 
 
 def _json(value: Any) -> str:

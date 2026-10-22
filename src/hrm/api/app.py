@@ -1,7 +1,8 @@
-"""FastAPI app: GET /health, POST /rag/search, POST /rag/ask.
+"""FastAPI app: health, policy RAG (/rag), HR data (hr_routes) and the agent chat (/chat).
 
-create_app() is a factory. Without arguments it builds the real RAGService once at startup
-(models, index, LLM client); tests pass a fake service instead.
+create_app() is a factory. Without arguments it builds the real services once at startup
+(RAG models and index, LLM clients, the agent and its conversation store); tests pass
+fakes instead.
 
 Every request gets an id (the X-Request-ID header, or a new one). It is bound to the
 logging context, so every log line of that request carries it, and it is returned in the
@@ -12,9 +13,10 @@ import re
 import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import ExitStack, asynccontextmanager
 from typing import Protocol
 
+import groq
 import structlog
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -22,8 +24,13 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session, sessionmaker
 
 from hrm import __version__
-from hrm.api import hr_routes
+from hrm.agents.factory import AgentFactory
+from hrm.agents.memory import open_memory
+from hrm.agents.runner import NothingToConfirmError
+from hrm.api import chat_routes, hr_routes
+from hrm.api.chat_routes import RunnerFactory
 from hrm.api.hr_routes import AuthConfig
+from hrm.api.rate_limit import RateLimitedError, RateLimiter
 from hrm.api.schemas import (
     AskRequest,
     AskResponse,
@@ -67,8 +74,11 @@ def create_app(
     *,
     session_factory: sessionmaker[Session] | None = None,
     auth: AuthConfig | None = None,
+    agents: RunnerFactory | None = None,
+    chat_limiter: RateLimiter | None = None,
 ) -> FastAPI:
-    """Without arguments, everything is built from settings at startup; tests pass fakes."""
+    """Without arguments, everything is built from settings at startup; tests pass fakes.
+    With a fake `service` and no `agents`, the chat endpoints answer 503."""
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -84,7 +94,15 @@ def create_app(
             secret=settings.jwt_secret.get_secret_value() if settings.jwt_secret else None,
             ttl_minutes=settings.jwt_ttl_minutes,
         )
-        yield
+        app.state.chat_limiter = chat_limiter or RateLimiter(settings.chat_messages_per_minute)
+        with ExitStack() as stack:
+            app.state.agents = agents
+            if agents is None and service is None:
+                memory = stack.enter_context(open_memory(settings.memory_db_path))
+                app.state.agents = AgentFactory.from_settings(
+                    settings, memory, policies=app.state.service
+                )
+            yield
 
     app = FastAPI(
         title="HRM Copilot API",
@@ -124,6 +142,27 @@ def create_app(
             content={"detail": "The answer service is temporarily unavailable. Please retry."},
         )
 
+    @app.exception_handler(groq.APIError)
+    async def model_api_error(request: Request, exc: groq.APIError) -> JSONResponse:
+        # The agent's model calls (rate limit, outage, timeout). Same answer as LLMError.
+        log.error("api.model_error", error=type(exc).__name__)
+        return JSONResponse(
+            status_code=502,
+            content={"detail": "The answer service is temporarily unavailable. Please retry."},
+        )
+
+    @app.exception_handler(RateLimitedError)
+    async def rate_limited(request: Request, exc: RateLimitedError) -> JSONResponse:
+        return JSONResponse(
+            status_code=429,
+            content={"detail": str(exc)},
+            headers={"Retry-After": str(exc.retry_after_s)},
+        )
+
+    @app.exception_handler(NothingToConfirmError)
+    async def nothing_to_confirm(request: Request, exc: NothingToConfirmError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
+
     @app.exception_handler(ConfigurationError)
     async def config_error(request: Request, exc: ConfigurationError) -> JSONResponse:
         log.error("api.config_error", error=str(exc))
@@ -155,6 +194,7 @@ def create_app(
         return JSONResponse(status_code=500, content={"detail": "Internal error."})
 
     app.include_router(hr_routes.router)
+    app.include_router(chat_routes.router)
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:

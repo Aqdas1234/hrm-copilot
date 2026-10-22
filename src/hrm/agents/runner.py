@@ -9,10 +9,10 @@ model: the user approves what will actually run, whatever the model wrote around
 
 from typing import Any, Literal
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.types import Command
+from langgraph.types import Command, StateSnapshot
 from pydantic import BaseModel
 
 from hrm.agents.graph import AgentState
@@ -46,6 +46,11 @@ class AgentReply(BaseModel):
     actions: list[PendingAction] = []
 
 
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    text: str
+
+
 class AgentRunner:
     def __init__(self, agent: CompiledStateGraph[AgentState]) -> None:
         self._agent = agent
@@ -62,18 +67,37 @@ class AgentRunner:
             raise NothingToConfirmError("There is nothing waiting for confirmation.")
         return self._run(Command(resume={"approved": approved}), thread_id)
 
+    def history(self, thread_id: str) -> list[ChatMessage]:
+        """What the user saw: their messages and the assistant's answers, no tool traffic."""
+        messages = self._agent.get_state(_config(thread_id)).values.get("messages", [])
+        return [
+            ChatMessage(role="user" if isinstance(m, HumanMessage) else "assistant", text=m.text)
+            for m in messages
+            if isinstance(m, HumanMessage) or (isinstance(m, AIMessage) and not m.tool_calls)
+        ]
+
+    def pending(self, thread_id: str) -> AgentReply | None:
+        """The confirmation this conversation is waiting for, if any."""
+        return _confirmation(self._agent.get_state(_config(thread_id)))
+
     def _run(self, payload: AgentState | Command[Any], thread_id: str) -> AgentReply:
         config = _config(thread_id)
         self._agent.invoke(payload, config)
         state = self._agent.get_state(config)
-        if state.interrupts:
-            actions = [_pending(a) for a in state.interrupts[0].value["actions"]]
-            lines = "\n".join(f"- {a.summary}" for a in actions)
-            return AgentReply(kind="confirm", text=f"Please confirm:\n{lines}", actions=actions)
-        return AgentReply(kind="answer", text=state.values["messages"][-1].text)
+        return _confirmation(state) or AgentReply(
+            kind="answer", text=state.values["messages"][-1].text
+        )
 
     def _is_waiting(self, thread_id: str) -> bool:
         return bool(self._agent.get_state(_config(thread_id)).interrupts)
+
+
+def _confirmation(state: StateSnapshot) -> AgentReply | None:
+    if not state.interrupts:
+        return None
+    actions = [_pending(a) for a in state.interrupts[0].value["actions"]]
+    lines = "\n".join(f"- {a.summary}" for a in actions)
+    return AgentReply(kind="confirm", text=f"Please confirm:\n{lines}", actions=actions)
 
 
 def describe_action(tool: str, args: dict[str, Any]) -> str:

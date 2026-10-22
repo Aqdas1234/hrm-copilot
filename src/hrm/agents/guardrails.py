@@ -53,6 +53,9 @@ _SECRETS = [
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(-----END [A-Z ]*PRIVATE KEY-----|$)"),
 ]
 _REDACTED = "[redacted]"
+# Look-alike characters some models emit (gpt-oss writes dates as 2026\u201111\u201116):
+# fine on screen, but copied dates break and exact-text checks fail.
+_PLAIN = str.maketrans({"\u2010": "-", "\u2011": "-", "\u00a0": " ", "\u202f": " "})
 
 INPUT_REFUSALS: dict[InputBlock, str] = {
     "empty": "Please type a question or request.",
@@ -103,6 +106,7 @@ def check_input(message: str) -> InputCheck:
 
 def check_output(answer: str) -> OutputCheck:
     """Make an agent answer safe to show: no prompt leak, no secrets, bounded length."""
+    answer = answer.translate(_PLAIN)  # a typography fix, not a finding
     if PROMPT_CANARY in answer:
         return OutputCheck(PROMPT_LEAK_REPLY, ["prompt_leak"])
     findings: list[str] = []

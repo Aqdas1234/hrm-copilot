@@ -18,23 +18,7 @@ from hrm.core.config import Settings
 from hrm.db.models import LeaveRequest
 from hrm.integrations.payroll import PayrollClient
 from tests.agents.helpers import TODAY, FakePolicies, user_ctx
-from tests.fakes import ScriptedChatModel, tool_call, wants_tools
-
-
-class Response:
-    status_code = 200
-
-    def json(self) -> list[object]:
-        return []
-
-
-class StubHTTP:
-    """The holiday API answers "no holidays"; any other call is a test failure."""
-
-    def get(self, url: str) -> Response:
-        if "/PublicHolidays/" not in url:
-            raise AssertionError(f"unexpected HTTP call: {url}")
-        return Response()
+from tests.fakes import ScriptedChatModel, StubHTTP, tool_call, wants_tools
 
 
 def factory(

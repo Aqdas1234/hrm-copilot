@@ -102,6 +102,7 @@ class Settings(BaseSettings):
     # History the model sees per call (approximate tokens). Older turns stay saved but are
     # not sent: keeps each call within Groq's free-tier tokens-per-minute limit.
     agent_history_tokens: int = Field(default=3000, gt=0)
+    chat_messages_per_minute: int = Field(default=6, gt=0)  # per user; each costs ~2-4 LLM calls
 
     # --- UI ---
     api_url: str = "http://127.0.0.1:8000"  # where the Streamlit page finds the API

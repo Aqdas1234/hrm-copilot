@@ -174,6 +174,10 @@ def add_rate(session: Session, rate: ExchangeRate) -> None:
 # --- expenses -----------------------------------------------------------------------------
 
 
+def get_expense_claim(session: Session, claim_id: int) -> ExpenseClaim | None:
+    return session.get(ExpenseClaim, claim_id)
+
+
 def expense_claims_for(session: Session, employee_id: int) -> list[ExpenseClaim]:
     return list(
         session.scalars(

@@ -62,7 +62,7 @@ def test_api_error_carries_the_message_and_request_id() -> None:
 
 
 def test_validation_error_gets_a_friendly_message() -> None:
-    with pytest.raises(ApiError, match="Please enter a question"):
+    with pytest.raises(ApiError, match="Please check your input"):
         client_returning(httpx.Response(422, json={"detail": [{"msg": "too short"}]})).ask("")
 
 

@@ -27,6 +27,8 @@ SELF_TOOLS = {
     "list_my_expense_claims",
     "submit_expense_claim",
     "get_my_payslip",
+    "open_hr_ticket",
+    "list_my_tickets",
 }
 TEAM_TOOLS = {
     "list_my_team",
@@ -34,7 +36,10 @@ TEAM_TOOLS = {
     "decide_leave_request",
     "decide_expense_claim",
 }
+HR_ADMIN_TOOLS = {"list_open_tickets", "update_hr_ticket"}  # + analytics when configured
 WRITE_TOOLS = {
+    "open_hr_ticket",
+    "update_hr_ticket",
     "request_leave",
     "cancel_my_leave_request",
     "submit_expense_claim",
@@ -55,9 +60,12 @@ def test_employees_get_self_service_tools_only(db: Session) -> None:
     assert set(tools_for(db, "alice.park")) == SELF_TOOLS
 
 
-@pytest.mark.parametrize("name", ["bob.chen", "carol.reyes"])
-def test_managers_and_hr_also_get_team_tools(db: Session, name: str) -> None:
-    assert set(tools_for(db, name)) == SELF_TOOLS | TEAM_TOOLS
+def test_managers_also_get_team_tools(db: Session) -> None:
+    assert set(tools_for(db, "bob.chen")) == SELF_TOOLS | TEAM_TOOLS
+
+
+def test_hr_admins_also_get_the_ticket_queue(db: Session) -> None:
+    assert set(tools_for(db, "carol.reyes")) == SELF_TOOLS | TEAM_TOOLS | HR_ADMIN_TOOLS
 
 
 def test_no_self_service_tool_accepts_an_identity_argument(db: Session) -> None:
@@ -68,7 +76,8 @@ def test_no_self_service_tool_accepts_an_identity_argument(db: Session) -> None:
 
 
 def test_exactly_the_data_changing_tools_are_marked_as_writes(db: Session) -> None:
-    marked = {name for name, t in tools_for(db, "bob.chen").items() if is_write(t)}
+    # The HR admin has every tool.
+    marked = {name for name, t in tools_for(db, "carol.reyes").items() if is_write(t)}
 
     assert marked == WRITE_TOOLS
 
@@ -228,3 +237,35 @@ def test_a_manager_cannot_decide_requests_outside_their_queue(db: Session) -> No
     )
 
     assert out == "ERROR: Leave request not found or not accessible."
+
+
+# --- HR tickets ----------------------------------------------------------------------------
+
+
+def test_an_employee_opens_and_lists_their_own_tickets(db: Session) -> None:
+    alice = tools_for(db, "alice.park")
+    opened = call(alice, "open_hr_ticket", category="payroll", subject="Tax code", description="x")
+
+    assert opened["status"] == "open"
+    assert [t["id"] for t in call(alice, "list_my_tickets")] == [opened["id"]]
+    assert call(tools_for(db, "hira.khan"), "list_my_tickets") == []
+
+
+def test_hr_works_the_queue_and_closing_needs_a_resolution(db: Session) -> None:
+    ticket = call(
+        tools_for(db, "alice.park"),
+        "open_hr_ticket",
+        category="access",
+        subject="s",
+        description="b",
+    )
+    carol = tools_for(db, "carol.reyes")
+
+    assert [t["id"] for t in call(carol, "list_open_tickets")] == [ticket["id"]]
+    error = call(carol, "update_hr_ticket", ticket_id=ticket["id"], status="closed")
+    assert error.startswith("ERROR:") and "resolution" in error
+    closed = call(
+        carol, "update_hr_ticket", ticket_id=ticket["id"], status="closed", resolution="Done."
+    )
+    assert closed["status"] == "closed"
+    assert call(carol, "list_open_tickets") == []

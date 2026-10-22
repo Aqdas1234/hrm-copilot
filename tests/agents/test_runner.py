@@ -141,7 +141,7 @@ def test_write_tools_without_a_checkpointer_fail_at_build_time(db: Session) -> N
 
 
 def test_every_write_tool_has_a_confirmation_summary(db: Session) -> None:
-    writes = {t.name for t in tools_for(db, "bob.chen").values() if is_write(t)}
+    writes = {t.name for t in tools_for(db, "carol.reyes").values() if is_write(t)}
     assert writes == set(ACTION_SUMMARIES)
 
 
@@ -157,6 +157,17 @@ def test_summaries_show_the_exact_arguments() -> None:
     }
     assert describe_action("submit_expense_claim", claim) == (
         "Submit an expense claim: External Monitor, 249.99 EUR, bought 2026-10-20"
+    )
+
+
+def test_ticket_summaries_show_what_will_be_saved() -> None:
+    args = {"category": "payroll", "subject": "Wrong tax code", "description": "..."}
+    assert describe_action("open_hr_ticket", args) == (
+        "Open an HR ticket (payroll): Wrong tax code"
+    )
+    closing = {"ticket_id": 4, "status": "closed", "resolution": "Fixed in November."}
+    assert describe_action("update_hr_ticket", closing) == (
+        "Set HR ticket #4 to closed (Fixed in November.)"
     )
 
 

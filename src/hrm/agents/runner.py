@@ -27,6 +27,8 @@ ACTION_SUMMARIES = {
     ),
     "decide_leave_request": "{decision} leave request #{request_id}",
     "decide_expense_claim": "{decision} expense claim #{claim_id}",
+    "open_hr_ticket": "Open an HR ticket ({category}): {subject}",
+    "update_hr_ticket": "Set HR ticket #{ticket_id} to {status}",
 }
 
 
@@ -109,7 +111,7 @@ def describe_action(tool: str, args: dict[str, Any]) -> str:
     if summary is None:
         return f"Run {tool} with {args}"
     summary = summary[0].upper() + summary[1:]  # "approve ..." -> "Approve ..."; keeps "EUR"
-    extra = args.get("reason") or args.get("note")
+    extra = args.get("reason") or args.get("note") or args.get("resolution")
     return f"{summary} ({extra})" if extra else summary
 
 

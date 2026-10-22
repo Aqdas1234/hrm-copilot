@@ -77,8 +77,9 @@ SPECIALISTS: tuple[Specialist, ...] = (
     Specialist(
         name="people",
         description=(
-            "The user's HR profile and their team; for managers: pending approvals and "
-            "approving or rejecting their reports' leave and expense claims."
+            "The user's HR profile, their team, and HR tickets (asking HR for help); for "
+            "managers: approving or rejecting their reports' leave and expense claims; for HR "
+            "admins: the ticket queue and workforce statistics."
         ),
         tools=frozenset(
             {
@@ -88,6 +89,11 @@ SPECIALISTS: tuple[Specialist, ...] = (
                 "list_pending_approvals",
                 "decide_leave_request",
                 "decide_expense_claim",
+                "open_hr_ticket",
+                "list_my_tickets",
+                "list_open_tickets",
+                "update_hr_ticket",
+                "query_hr_analytics",
             }
         ),
         focus="You help with the user's profile, their team and their approvals.",

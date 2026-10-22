@@ -1,0 +1,80 @@
+# The whole system on one machine:  docker compose up --build   then open http://localhost:8501
+# Secrets come from .env (never baked into the image); see .env.example.
+# Host ports: HRM_API_PORT (8000) and HRM_UI_PORT (8501) if those are taken.
+
+x-app: &app
+  build: .
+  image: hrm-copilot:latest
+  env_file: .env
+  environment: &app-env
+    HRM_DATABASE_URL: mysql+pymysql://hrm:${MYSQL_PASSWORD:?set MYSQL_PASSWORD in .env}@mysql:3306/hrm
+    HRM_PAYROLL_API_URL: http://payroll:8090
+    HRM_LOG_FORMAT: json  # one JSON object per line, for log collectors
+  restart: unless-stopped
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: hrm
+      MYSQL_USER: hrm
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "hrm", "-p$$MYSQL_PASSWORD"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+    # Not published: only the other containers reach it.
+
+  # One-off job: bring the schema up to date, add demo data to an empty database.
+  setup:
+    <<: *app
+    command: ["sh", "-c", "hrm db upgrade && hrm db seed --if-empty"]
+    depends_on:
+      mysql: { condition: service_healthy }
+    restart: "no"
+
+  payroll:
+    <<: *app
+    command: ["hrm", "mock-payroll", "--host", "0.0.0.0"]
+    depends_on:
+      setup: { condition: service_completed_successfully }
+
+  api:
+    <<: *app
+    # One process: the chat rate limiter and the conversation store are per process.
+    command: ["hrm", "serve", "--host", "0.0.0.0"]
+    volumes:
+      - agent-memory:/app/state
+    ports:
+      - "${HRM_API_PORT:-8000}:8000"
+    depends_on:
+      setup: { condition: service_completed_successfully }
+      payroll: { condition: service_started }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  ui:
+    <<: *app
+    command: ["hrm", "ui", "--host", "0.0.0.0"]
+    environment:
+      <<: *app-env
+      HRM_API_URL: http://api:8000
+      STREAMLIT_SERVER_HEADLESS: "true"
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+    ports:
+      - "${HRM_UI_PORT:-8501}:8501"
+    depends_on:
+      api: { condition: service_healthy }
+
+volumes:
+  mysql-data:
+  agent-memory:

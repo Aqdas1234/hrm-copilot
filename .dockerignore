@@ -1,0 +1,15 @@
+# Keep secrets, local state and caches out of the build context (and the image).
+.env
+.env.*
+!.env.example
+.git
+.venv
+.cache
+.mypy_cache
+.pytest_cache
+.ruff_cache
+**/__pycache__
+data/index
+data/memory.sqlite*
+evals
+tests

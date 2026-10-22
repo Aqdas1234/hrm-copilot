@@ -228,4 +228,5 @@ def test_db_seed_then_refuse_then_reset(monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert "Seeded 30 employees" in first.stdout
     assert "alice.park@example.com" in first.stdout
     assert again.exit_code == 1 and "--reset" in again.output
+    assert runner.invoke(app, ["db", "seed", "--if-empty"]).exit_code == 0
     assert reset.exit_code == 0, reset.output

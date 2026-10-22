@@ -210,10 +210,14 @@ def serve(
 
 
 @app.command()
-def ui(port: int = typer.Option(8501, help="Port for the web page.")) -> None:
-    """Open the Streamlit question page (needs `hrm serve` running for the API)."""
+def ui(
+    host: str = typer.Option("127.0.0.1", help="Interface (0.0.0.0 inside a container)."),
+    port: int = typer.Option(8501, help="Port for the web page."),
+) -> None:
+    """Open the Streamlit app (needs `hrm serve` running for the API)."""
     page = Path(__file__).parent / "ui" / "streamlit_app.py"
-    command = [sys.executable, "-m", "streamlit", "run", str(page), "--server.port", str(port)]
+    command = [sys.executable, "-m", "streamlit", "run", str(page), "--server.address", host]
+    command += ["--server.port", str(port)]
     raise typer.Exit(subprocess.run(command, check=False).returncode)
 
 
@@ -298,6 +302,9 @@ def db_upgrade() -> None:
 @db_app.command("seed")
 def db_seed(
     reset: bool = typer.Option(False, "--reset", help="Drop ALL tables and data first."),
+    if_empty: bool = typer.Option(
+        False, "--if-empty", help="Do nothing if there is data already (for start-up jobs)."
+    ),
 ) -> None:
     """Fill the HR database with deterministic demo data."""
     settings = get_settings()
@@ -313,6 +320,9 @@ def db_seed(
                 demo_password=settings.demo_password.get_secret_value(),
             )
     except DatabaseNotEmptyError as exc:
+        if if_empty:
+            typer.echo("The database already has data; not seeding.")
+            return
         typer.echo(f"Error: {exc} (use --reset)", err=True)
         raise typer.Exit(code=1) from exc
     except Exception as exc:  # unreachable server, wrong credentials, ...
@@ -328,7 +338,10 @@ def db_seed(
 
 
 @app.command("mock-payroll")
-def mock_payroll(port: int = typer.Option(8090, help="Port for the mock payroll API.")) -> None:
+def mock_payroll(
+    host: str = typer.Option("127.0.0.1", help="Interface (0.0.0.0 inside a container)."),
+    port: int = typer.Option(8090, help="Port for the mock payroll API."),
+) -> None:
     """Run the mock payroll provider (fails at HRM_PAYROLL_FAILURE_RATE, default 20%)."""
     settings = get_settings()
     engine = make_engine(settings.database_url.get_secret_value())
@@ -347,4 +360,4 @@ def mock_payroll(port: int = typer.Option(8090, help="Port for the mock payroll 
         f"Mock payroll: {len(salaries)} employees, failure rate {settings.payroll_failure_rate:.0%}"
     )
     payroll_app = create_mock_payroll_app(salaries, failure_rate=settings.payroll_failure_rate)
-    uvicorn.run(payroll_app, host="127.0.0.1", port=port, log_config=None)
+    uvicorn.run(payroll_app, host=host, port=port, log_config=None)

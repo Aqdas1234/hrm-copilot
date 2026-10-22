@@ -39,4 +39,5 @@ unsupported by the documents; refusals are checked by code.
 | 2026-10-21 | baseline (prompt v1), old dataset | hybrid + rerank, answer openai/gpt-oss-120b, prompt v1, judge openai/gpt-oss-20b | 0.69 | 0.67 | 0.95 | 1.00 | 0.23 | 0.90 | 6.2 | 1500 |
 | 2026-10-21 | v1 + sources field, old dataset | hybrid + rerank, answer openai/gpt-oss-120b, prompt v1, judge openai/gpt-oss-20b | 0.92 | 0.90 | 0.96 | 1.00 | 0.03 | 0.90 | 2.1 | 1542 |
 | 2026-10-21 | v2 prompt + sources field, old dataset (v2 reverted) | hybrid + rerank, answer openai/gpt-oss-120b, prompt v2, judge openai/gpt-oss-20b | 0.82 | 0.77 | 0.96 | 0.96 | 0.03 | 0.90 | 3.9 | 1681 |
+| 2026-10-22 | final: prompt v1 + sources, corrected dataset | hybrid + rerank, answer openai/gpt-oss-120b, prompt v1, judge openai/gpt-oss-20b | 0.94 | 0.90 | 0.97 | 1.00 | 0.03 | 1.00 | 2.6 | 1562 |
 <!-- answer rows: new rows are inserted above this line -->

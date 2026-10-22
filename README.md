@@ -142,6 +142,7 @@ the policies do not cover. Refusals are checked by code.
 | Baseline: prompt v1 | 0.69 | 0.67 | 0.95 | 0.23 | 0.90 |
 | **+ structured `sources` field (kept)** | **0.92** | **0.90** | **0.96** | **0.03** | 0.90 |
 | + stricter prompt v2 (reverted) | 0.82 | 0.77 | 0.96 | 0.03 | 0.90 |
+| **Final: v1 + `sources`, corrected dataset** | **0.94** | **0.90** | **0.97** | **0.03** | **1.00** |
 
 - **The biggest win was a schema field, not a prompt.** The model often answered correctly
   but skipped the inline `[n]` markers, and the "no citation, no answer" rule then discarded

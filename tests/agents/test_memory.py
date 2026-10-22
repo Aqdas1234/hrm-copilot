@@ -1,6 +1,7 @@
 """Conversation memory: ownership, persistence, history trimming, and the factory."""
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMessage
@@ -36,9 +37,11 @@ class StubHTTP:
         return Response()
 
 
-def factory(llm: ScriptedChatModel, saver: BaseCheckpointSaver[str]) -> AgentFactory:
+def factory(
+    llm: ScriptedChatModel, saver: BaseCheckpointSaver[str], **settings: Any
+) -> AgentFactory:
     return AgentFactory(
-        settings=Settings(_env_file=None),
+        settings=Settings(_env_file=None, **settings),
         llm=llm,
         policies=FakePolicies(),
         http=StubHTTP(),
@@ -120,6 +123,20 @@ def test_the_factory_builds_the_prompt_from_the_employee_record(db: Session) -> 
     llm = ScriptedChatModel(script=[AIMessage(content="hi")])
     runner(db, "hira.khan", llm, InMemorySaver()).ask("t", "hello")
     assert "Hira Khan" in llm.seen[0][0].text
+
+
+def test_router_mode_routes_before_answering(db: Session) -> None:
+    llm = ScriptedChatModel(
+        script=[
+            wants_tools(tool_call("RouteDecision", specialist="policy")),
+            AIMessage(content="hi"),
+        ]
+    )
+    runner = factory(llm, InMemorySaver(), agent_mode="router").runner(
+        db, user_ctx(db, "alice.park"), TODAY
+    )
+    assert runner.ask("t", "hello").text == "hi"
+    assert len(llm.seen) == 2  # one routing call, one specialist call
 
 
 # --- history trimming ----------------------------------------------------------------------

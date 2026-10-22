@@ -1,13 +1,15 @@
-"""The single HR agent as a LangGraph state machine.
+"""The HR agent as a LangGraph state machine, built from two reusable parts.
 
-    guard_in ──blocked──────────────────────────────────────────────┐
-       │ ok                                                          │
-       ▼                                                             ▼
-     agent ──read-only calls──▶ tools ──▶ agent ...  ──answer──▶ guard_out ──▶ END
-       │  │                       ▲                                  ▲
-       │  └─calls that write──▶ confirm ──declined───────────────────┤
-       │                     (pauses: interrupt)                     │
-       └─over a limit──▶ stop ───────────────────────────────────────┘
+Guarded graph (shared by the single agent and the router, router.py):
+
+    START ─▶ guard_in ─ok─▶ [agent loop, or route ─▶ specialist loop] ─▶ guard_out ─▶ END
+                └─blocked──────────────────────────────────────────────────▲
+
+Agent loop (a subgraph):
+
+    agent ──read-only calls──▶ tools ──▶ agent ...  ──answer──▶ END
+      │  └─calls that write──▶ confirm (pauses: interrupt) ──declined──▶ END
+      └─over a limit──▶ stop ─────────────────────────────────────────▶ END
 
 Why hand-written instead of a prebuilt ReAct agent: every guardrail is a node you can
 see and test.
@@ -83,6 +85,9 @@ class AgentLimits:
 
 
 DEFAULT_LIMITS = AgentLimits()
+# langgraph's END, typed as a Literal so routing functions can be checked by mypy.
+_END: Literal["__end__"] = "__end__"
+assert _END == END
 
 
 class AgentState(TypedDict, total=False):
@@ -90,6 +95,7 @@ class AgentState(TypedDict, total=False):
     steps: int  # model calls for the current user message
     tool_calls: int  # tool calls for the current user message
     blocked: str | None  # why guard_in refused the message, if it did
+    specialist: str | None  # router mode: who handles the current message
 
 
 def build_agent(
@@ -100,27 +106,54 @@ def build_agent(
     *,
     checkpointer: BaseCheckpointSaver[str] | None = None,
 ) -> CompiledStateGraph[AgentState]:
-    """Compile the agent for one user. Tools are already bound to that user (tools.py),
-    so the graph is built per request; compiling takes milliseconds.
+    """The single agent: guard_in -> agent loop -> guard_out.
 
-    The checkpointer keeps conversations (and paused confirmations) between requests.
+    Compiled per request: tools are bound to the logged-in user (tools.py), and compiling
+    takes milliseconds. The checkpointer keeps conversations and paused confirmations.
     """
-    writes = {t.name for t in tools if is_write(t)}
-    if writes and checkpointer is None:
+    require_checkpointer(tools, checkpointer)
+    graph = guarded_graph(first="agent")
+    graph.add_node("agent", agent_loop(llm, tools, system_prompt, limits))
+    graph.add_edge("agent", "guard_out")
+    return graph.compile(checkpointer=checkpointer)
+
+
+def guarded_graph(*, first: str) -> StateGraph[AgentState]:
+    """START -> guard_in -> `first` ... guard_out -> END. The caller adds the middle part
+    and an edge from it to guard_out. Shared by the single agent and the router."""
+    graph = StateGraph(AgentState)
+    graph.add_node("guard_in", _guard_in)
+    graph.add_node("guard_out", _guard_out)
+    graph.add_edge(START, "guard_in")
+    graph.add_conditional_edges(
+        "guard_in", lambda state: bool(state.get("blocked")), {True: "guard_out", False: first}
+    )
+    graph.add_edge("guard_out", END)
+    return graph
+
+
+def require_checkpointer(
+    tools: Sequence[BaseTool], checkpointer: BaseCheckpointSaver[str] | None
+) -> None:
+    if checkpointer is None and any(is_write(t) for t in tools):
         # Without saved state a confirmation could never be resumed: fail at build time.
         raise ConfigurationError("Tools that change data need a checkpointer.")
+
+
+def agent_loop(
+    llm: BaseChatModel,
+    tools: Sequence[BaseTool],
+    system_prompt: str,
+    limits: AgentLimits = DEFAULT_LIMITS,
+) -> CompiledStateGraph[AgentState]:
+    """agent <-> tools, with confirmation before writes and the loop limits.
+
+    Compiled without a checkpointer: it runs as a subgraph and uses its parent's, which
+    is what lets a confirmation inside it pause and resume.
+    """
+    writes = {t.name for t in tools if is_write(t)}
     model = llm.bind_tools(list(tools))
     run_tools = ToolNode(list(tools))  # unknown tool names come back as an error message
-
-    def guard_in(state: AgentState) -> AgentState:
-        message = state["messages"][-1]
-        check = check_input(message.text)
-        reset: AgentState = {"steps": 0, "tool_calls": 0, "blocked": check.blocked}
-        if not check.ok:
-            log.warning("agent.input_blocked", reason=check.blocked)
-            return {**reset, "messages": [AIMessage(content=check.refusal or "")]}
-        # Same id, so the normalised text replaces the raw message instead of adding one.
-        return {**reset, "messages": [HumanMessage(content=check.text, id=message.id)]}
 
     def agent(state: AgentState) -> AgentState:
         history = recent_history(state["messages"], limits.max_history_tokens)
@@ -134,7 +167,7 @@ def build_agent(
         log.info("agent.tools", tools=[c["name"] for c in calls])
         return {"messages": messages, "tool_calls": state.get("tool_calls", 0) + len(calls)}
 
-    def confirm(state: AgentState) -> Command[Literal["tools", "guard_out"]]:
+    def confirm(state: AgentState) -> Command[Literal["tools", "__end__"]]:
         calls = _pending_calls(state)
         # Pauses here. On resume this node re-runs from the top and interrupt() returns
         # the caller's answer, so nothing before this line may have side effects.
@@ -154,8 +187,7 @@ def build_agent(
             for c in calls
         ]
         return Command(
-            goto="guard_out",
-            update={"messages": [*declined, AIMessage(content=DECLINED_REPLY)]},
+            goto=_END, update={"messages": [*declined, AIMessage(content=DECLINED_REPLY)]}
         )
 
     def stop(state: AgentState) -> AgentState:
@@ -167,46 +199,52 @@ def build_agent(
         ]
         return {"messages": [*unanswered, AIMessage(content=LIMIT_REPLY)]}
 
-    def guard_out(state: AgentState) -> AgentState:
-        answer = state["messages"][-1]
-        check = check_output(answer.text)
-        log.info(
-            "agent.done",
-            prompt=PROMPT_VERSION,
-            steps=state.get("steps", 0),
-            tools=state.get("tool_calls", 0),
-            output_findings=check.findings,
-        )
-        if not check.changed:
-            return {}
-        return {"messages": [AIMessage(content=check.text, id=answer.id)]}
-
-    def after_guard_in(state: AgentState) -> Literal["agent", "guard_out"]:
-        return "guard_out" if state.get("blocked") else "agent"
-
-    def after_agent(state: AgentState) -> Literal["tools", "confirm", "stop", "guard_out"]:
+    def after_agent(state: AgentState) -> Literal["tools", "confirm", "stop", "__end__"]:
         calls = _pending_calls(state)
         if not calls:
-            return "guard_out"
+            return _END
         too_many_tools = state.get("tool_calls", 0) + len(calls) > limits.max_tool_calls
         if too_many_tools or state.get("steps", 0) >= limits.max_steps:
             return "stop"
         return "confirm" if any(c["name"] in writes for c in calls) else "tools"
 
-    graph = StateGraph(AgentState)
-    graph.add_node("guard_in", guard_in)
-    graph.add_node("agent", agent)
-    graph.add_node("confirm", confirm)
-    graph.add_node("tools", tools_node)
-    graph.add_node("stop", stop)
-    graph.add_node("guard_out", guard_out)
-    graph.add_edge(START, "guard_in")
-    graph.add_conditional_edges("guard_in", after_guard_in)
-    graph.add_conditional_edges("agent", after_agent)
-    graph.add_edge("tools", "agent")
-    graph.add_edge("stop", "guard_out")
-    graph.add_edge("guard_out", END)
-    return graph.compile(checkpointer=checkpointer)
+    loop = StateGraph(AgentState)
+    loop.add_node("agent", agent)
+    loop.add_node("confirm", confirm)
+    loop.add_node("tools", tools_node)
+    loop.add_node("stop", stop)
+    loop.add_edge(START, "agent")
+    loop.add_conditional_edges("agent", after_agent)
+    loop.add_edge("tools", "agent")
+    loop.add_edge("stop", END)
+    return loop.compile()
+
+
+def _guard_in(state: AgentState) -> AgentState:
+    message = state["messages"][-1]
+    check = check_input(message.text)
+    reset: AgentState = {"steps": 0, "tool_calls": 0, "blocked": check.blocked, "specialist": None}
+    if not check.ok:
+        log.warning("agent.input_blocked", reason=check.blocked)
+        return {**reset, "messages": [AIMessage(content=check.refusal or "")]}
+    # Same id, so the normalised text replaces the raw message instead of adding one.
+    return {**reset, "messages": [HumanMessage(content=check.text, id=message.id)]}
+
+
+def _guard_out(state: AgentState) -> AgentState:
+    answer = state["messages"][-1]
+    check = check_output(answer.text)
+    log.info(
+        "agent.done",
+        prompt=PROMPT_VERSION,
+        specialist=state.get("specialist"),
+        steps=state.get("steps", 0),
+        tools=state.get("tool_calls", 0),
+        output_findings=check.findings,
+    )
+    if not check.changed:
+        return {}
+    return {"messages": [AIMessage(content=check.text, id=answer.id)]}
 
 
 def _pending_calls(state: AgentState) -> list[ToolCall]:

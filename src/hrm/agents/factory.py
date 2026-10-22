@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from hrm.agents.graph import AgentLimits, build_agent
 from hrm.agents.prompts import system_prompt
+from hrm.agents.router import build_router_agent
 from hrm.agents.runner import AgentRunner
 from hrm.agents.tools import ToolDeps, build_tools
 from hrm.auth.context import UserContext
@@ -78,11 +79,13 @@ class AgentFactory:
             payroll=self.payroll,
             today=today,
         )
-        agent = build_agent(
-            self.llm,
-            build_tools(deps),
-            system_prompt(name=employee.full_name, role=user.role, today=today),
-            AgentLimits.from_settings(self.settings),
-            checkpointer=self.checkpointer,
-        )
+        tools = build_tools(deps)
+        prompt = system_prompt(name=employee.full_name, role=user.role, today=today)
+        limits = AgentLimits.from_settings(self.settings)
+        if self.settings.agent_mode == "router":
+            agent = build_router_agent(
+                self.llm, self.llm, tools, prompt, limits, checkpointer=self.checkpointer
+            )
+        else:
+            agent = build_agent(self.llm, tools, prompt, limits, checkpointer=self.checkpointer)
         return AgentRunner(agent)

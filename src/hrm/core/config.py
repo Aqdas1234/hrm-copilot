@@ -94,6 +94,9 @@ class Settings(BaseSettings):
     # Conversations live in their own SQLite file, apart from the HR database: chat history
     # is not HR data, and no HR tool or query can reach it.
     memory_db_path: Path = PROJECT_ROOT / "data" / "memory.sqlite"
+    # "single": one agent with all of the user's tools. "router": a routing call picks a
+    # specialist with fewer tools (agents/specialists.py). B7 compares the two.
+    agent_mode: Literal["single", "router"] = "single"
     agent_max_steps: int = Field(default=8, gt=0)  # model calls per user message
     agent_max_tool_calls: int = Field(default=6, gt=0)  # tool runs per user message
     # History the model sees per call (approximate tokens). Older turns stay saved but are

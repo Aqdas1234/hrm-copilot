@@ -85,6 +85,8 @@ class Settings(BaseSettings):
     # --- External services (Part B) ---
     holidays_api_url: str = "https://date.nager.at/api/v3"
     currency_api_url: str = "https://api.frankfurter.dev/v1"
+    payroll_api_url: str = "http://127.0.0.1:8090"  # `hrm mock-payroll` in development
+    payroll_failure_rate: float = Field(default=0.2, ge=0, le=1)  # mock only: share of 503s
     http_timeout_s: float = Field(default=10.0, gt=0)
     http_retries: int = Field(default=3, ge=1)  # attempts, including the first
 

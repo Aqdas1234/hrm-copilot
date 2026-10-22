@@ -15,14 +15,13 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
-import httpx
 from sqlalchemy.orm import Session
 
 from hrm.core.errors import HRMError
 from hrm.core.logging import get_logger
 from hrm.db import repository as repo
 from hrm.db.models import ExchangeRate, RateSource
-from hrm.integrations.http import ServiceUnavailableError, get_with_retries
+from hrm.integrations.http import HTTPGetter, ServiceUnavailableError, get_with_retries
 
 log = get_logger(__name__)
 
@@ -45,7 +44,7 @@ class CurrencyService:
     def __init__(
         self,
         session: Session,
-        client: httpx.Client,
+        client: HTTPGetter,
         *,
         base_url: str = "https://api.frankfurter.dev/v1",
         attempts: int = 3,

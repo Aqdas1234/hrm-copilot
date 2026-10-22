@@ -9,6 +9,7 @@ from typing import get_args
 
 import typer
 import uvicorn
+from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from hrm import __version__
@@ -16,9 +17,10 @@ from hrm.core.config import get_settings
 from hrm.core.errors import HRMError
 from hrm.core.llm import get_answer_model, get_fast_model
 from hrm.core.logging import configure_logging, get_logger
-from hrm.db.models import Base
+from hrm.db.models import Base, Compensation, Employee
 from hrm.db.seed import DatabaseNotEmptyError, seed
 from hrm.db.session import create_schema, make_engine, session_scope
+from hrm.integrations.mock_payroll import create_mock_payroll_app
 from hrm.rag.chunking import chunk_document, tiktoken_counter
 from hrm.rag.cleaning import clean_document
 from hrm.rag.embeddings import FastEmbedEmbedder
@@ -255,3 +257,26 @@ def db_seed(
     typer.echo("Demo logins (password: HRM_DEMO_PASSWORD):")
     for email in summary.demo_users:
         typer.echo(f"  {email}")
+
+
+@app.command("mock-payroll")
+def mock_payroll(port: int = typer.Option(8090, help="Port for the mock payroll API.")) -> None:
+    """Run the mock payroll provider (fails at HRM_PAYROLL_FAILURE_RATE, default 20%)."""
+    settings = get_settings()
+    engine = make_engine(settings.database_url.get_secret_value())
+    with sessionmaker(engine)() as session:
+        salaries = {
+            code: (cents, currency)
+            for code, cents, currency in session.execute(
+                select(
+                    Employee.employee_code, Compensation.base_salary_cents, Compensation.currency
+                )
+                .join(Compensation, Compensation.employee_id == Employee.id)
+                .order_by(Compensation.effective_from)  # latest row per employee wins
+            )
+        }
+    typer.echo(
+        f"Mock payroll: {len(salaries)} employees, failure rate {settings.payroll_failure_rate:.0%}"
+    )
+    payroll_app = create_mock_payroll_app(salaries, failure_rate=settings.payroll_failure_rate)
+    uvicorn.run(payroll_app, host="127.0.0.1", port=port, log_config=None)

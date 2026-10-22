@@ -86,6 +86,14 @@ class TicketStatus(enum.StrEnum):
     CLOSED = "closed"
 
 
+class TicketCategory(enum.StrEnum):
+    PAYROLL = "payroll"
+    BENEFITS = "benefits"
+    LEAVE = "leave"
+    ACCESS = "access"  # systems, badges, accounts
+    OTHER = "other"
+
+
 class HolidaySource(enum.StrEnum):
     API = "api"  # fetched from Nager.Date and cached
     MANUAL = "manual"  # entered for countries the API does not cover
@@ -243,13 +251,16 @@ class HRTicket(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), index=True)
-    category: Mapped[str] = mapped_column(String(50))
+    category: Mapped[TicketCategory] = mapped_column(_enum(TicketCategory, "ticket_category"))
     subject: Mapped[str] = mapped_column(String(200))
-    body: Mapped[str] = mapped_column(Text)
+    body: Mapped[str] = mapped_column(Text)  # free text from the employee: untrusted
     status: Mapped[TicketStatus] = mapped_column(
         _enum(TicketStatus, "ticket_status"), default=TicketStatus.OPEN
     )
+    resolution: Mapped[str | None] = mapped_column(Text)  # required to close
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class RateSource(enum.StrEnum):

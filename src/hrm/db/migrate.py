@@ -11,11 +11,10 @@ New migration after changing models.py:
 from pathlib import Path
 
 from alembic import command
-from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from sqlalchemy import Connection, Engine, inspect
+from sqlalchemy import Connection, Engine, create_engine, inspect
 
 from hrm.core.errors import HRMError
 from hrm.db.models import Base
@@ -73,13 +72,40 @@ def _is_unversioned_existing(connection: Connection) -> bool:
 
 
 def _adopt(connection: Connection, config: Config) -> None:
-    """A database created by create_all() before migrations existed: if it matches the
-    baseline exactly, record it as the baseline version; never guess otherwise."""
-    differences = compare_metadata(MigrationContext.configure(connection), Base.metadata)
-    if differences:
+    """A database created by create_all() before migrations existed: if its tables and
+    columns are exactly the baseline's, record it as the baseline version (later
+    migrations then apply normally); never guess otherwise.
+
+    Compared with the baseline, not the current models: those include later migrations.
+    """
+    actual = _columns(connection)
+    expected = _baseline_columns()
+    if actual != expected:
+        different = sorted(
+            t for t in actual.keys() | expected.keys() if actual.get(t) != expected.get(t)
+        )
         raise SchemaMismatchError(
             f"The database has tables but no migration version, and differs from the "
-            f"baseline schema ({len(differences)} differences). Back it up and reset it, or "
-            f"stamp it by hand with `alembic stamp {BASELINE}` after checking."
+            f"baseline schema (tables: {', '.join(different)}). Back it up and reset it, or "
+            f"stamp it by hand with `alembic stamp <revision>` after checking."
         )
     command.stamp(config, BASELINE)
+
+
+def _baseline_columns() -> dict[str, set[str]]:
+    scratch = create_engine("sqlite://")
+    try:
+        upgrade(scratch, BASELINE)
+        with scratch.connect() as connection:
+            return _columns(connection)
+    finally:
+        scratch.dispose()
+
+
+def _columns(connection: Connection) -> dict[str, set[str]]:
+    inspector = inspect(connection)
+    return {
+        table: {c["name"] for c in inspector.get_columns(table)}
+        for table in inspector.get_table_names()
+        if table != "alembic_version"
+    }

@@ -64,16 +64,19 @@ def test_reset_drops_the_version_table_too(engine: Engine) -> None:
 
 
 def test_a_database_created_before_migrations_is_adopted(engine: Engine) -> None:
-    create_schema(engine)  # how `hrm db init` used to create it
+    upgrade(engine, "0001")  # the baseline schema, as `hrm db init` used to create it...
+    with engine.begin() as connection:
+        connection.execute(text("DROP TABLE alembic_version"))  # ...without a version
+
     upgrade(engine)  # adopted as the baseline, then upgraded from there
+
     assert current_revision(engine) == head_revision()
     assert "v_employees" in inspect(engine).get_view_names()
+    assert "resolution" in {c["name"] for c in inspect(engine).get_columns("hr_tickets")}
 
 
 def test_an_unversioned_database_that_differs_is_refused(engine: Engine) -> None:
-    create_schema(engine)
-    with engine.begin() as connection:
-        connection.execute(text("ALTER TABLE employees ADD COLUMN surprise INTEGER"))
+    create_schema(engine)  # today's models: not the baseline, so it must not be adopted
     with pytest.raises(SchemaMismatchError):
         upgrade(engine)
     assert current_revision(engine) is None

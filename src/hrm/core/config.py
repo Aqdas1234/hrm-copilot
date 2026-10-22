@@ -84,6 +84,7 @@ class Settings(BaseSettings):
 
     # --- External services (Part B) ---
     holidays_api_url: str = "https://date.nager.at/api/v3"
+    currency_api_url: str = "https://api.frankfurter.dev/v1"
     http_timeout_s: float = Field(default=10.0, gt=0)
     http_retries: int = Field(default=3, ge=1)  # attempts, including the first
 

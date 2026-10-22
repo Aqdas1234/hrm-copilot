@@ -252,6 +252,29 @@ class HRTicket(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class RateSource(enum.StrEnum):
+    API = "api"  # fetched from Frankfurter (ECB rates) and cached
+    MANUAL = "manual"  # set by Finance for currencies the API does not cover
+
+
+class ExchangeRate(Base):
+    """USD value of one unit of a currency. API rows: one per requested day (with the date
+    the rate was actually published). Manual rows: valid from `day` until a newer one."""
+
+    __tablename__ = "exchange_rates"
+    __table_args__ = (
+        UniqueConstraint("currency", "day", "source", name="uq_rate_currency_day_source"),
+        CheckConstraint("usd_per_unit > 0", name="rate_positive"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    currency: Mapped[str] = mapped_column(String(3))
+    day: Mapped[date] = mapped_column(Date)
+    usd_per_unit: Mapped[Decimal] = mapped_column(Numeric(18, 8))
+    published_on: Mapped[date] = mapped_column(Date)
+    source: Mapped[RateSource] = mapped_column(_enum(RateSource, "rate_source"))
+
+
 class AuditLog(Base):
     """Who did or saw what, when. Append-only: rows are only ever inserted."""
 

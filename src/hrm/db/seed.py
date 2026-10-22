@@ -25,12 +25,14 @@ from hrm.db.models import (
     Department,
     Employee,
     EmploymentType,
+    ExchangeRate,
     ExpenseClaim,
     HolidaySource,
     LeaveBalance,
     LeaveRequest,
     LeaveType,
     PublicHoliday,
+    RateSource,
     RequestStatus,
     Role,
     User,
@@ -272,6 +274,17 @@ def seed(session: Session, *, today: date, demo_password: str, seed_value: int =
                     country="PK", day=date(year, month, day), name=name, source=HolidaySource.MANUAL
                 )
             )
+
+    # Frankfurter (ECB rates) does not publish PKR, so Finance sets it manually.
+    session.add(
+        ExchangeRate(
+            currency="PKR",
+            day=date(today.year, 1, 1),
+            usd_per_unit=DEMO_USD_RATE["PKR"],
+            published_on=date(today.year, 1, 1),
+            source=RateSource.MANUAL,
+        )
+    )
 
     session.add(
         AuditLog(

@@ -16,11 +16,13 @@ from hrm.db.models import (
     AuditLog,
     Compensation,
     Employee,
+    ExchangeRate,
     ExpenseClaim,
     LeaveBalance,
     LeaveRequest,
     LeaveType,
     PublicHoliday,
+    RateSource,
     RequestStatus,
     User,
 )
@@ -118,6 +120,38 @@ def holidays_between(session: Session, country: str, start: date, end: date) -> 
 
 def add_holidays(session: Session, holidays: list[PublicHoliday]) -> None:
     session.add_all(holidays)
+    session.flush()
+
+
+# --- exchange rates ---------------------------------------------------------------------
+
+
+def cached_rate(session: Session, currency: str, day: date) -> ExchangeRate | None:
+    return session.scalar(
+        select(ExchangeRate).where(
+            ExchangeRate.currency == currency,
+            ExchangeRate.day == day,
+            ExchangeRate.source == RateSource.API,
+        )
+    )
+
+
+def manual_rate(session: Session, currency: str, on: date) -> ExchangeRate | None:
+    """The newest manually set rate valid on `on` (set on or before that day)."""
+    return session.scalar(
+        select(ExchangeRate)
+        .where(
+            ExchangeRate.currency == currency,
+            ExchangeRate.source == RateSource.MANUAL,
+            ExchangeRate.day <= on,
+        )
+        .order_by(ExchangeRate.day.desc())
+        .limit(1)
+    )
+
+
+def add_rate(session: Session, rate: ExchangeRate) -> None:
+    session.add(rate)
     session.flush()
 
 

@@ -21,7 +21,8 @@ from hrm.auth.login import InvalidCredentialsError, authenticate
 from hrm.auth.tokens import InvalidTokenError, create_token, user_id_from_token
 from hrm.core.errors import ConfigurationError
 from hrm.db import repository as repo
-from hrm.db.models import User
+from hrm.db.models import Role, User
+from hrm.workflows.tickets import TicketService, TicketView
 
 router = APIRouter()
 MIN_SECRET_LENGTH = 32
@@ -53,6 +54,9 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int  # seconds
+    # For the UI to decide what to show; every request is still checked on the server,
+    # with the role read from the database.
+    role: Role
 
 
 def get_session(request: Request) -> Iterator[Session]:
@@ -93,7 +97,14 @@ def hr_access(session: SessionDep, ctx: Annotated[UserContext, Depends(current_u
     return HRAccess(session, ctx)
 
 
+def ticket_service(
+    session: SessionDep, ctx: Annotated[UserContext, Depends(current_user)]
+) -> TicketService:
+    return TicketService(session, ctx)
+
+
 AccessDep = Annotated[HRAccess, Depends(hr_access)]
+TicketsDep = Annotated[TicketService, Depends(ticket_service)]
 
 
 @router.post("/auth/login", response_model=TokenResponse, tags=["auth"])
@@ -115,7 +126,7 @@ def login(body: LoginRequest, request: Request, session: SessionDep) -> TokenRes
         session, actor_user_id=user.id, action="auth.login", entity="user", entity_id=user.id
     )
     token = create_token(user, secret=secret, ttl_minutes=config.ttl_minutes)
-    return TokenResponse(access_token=token, expires_in=config.ttl_minutes * 60)
+    return TokenResponse(access_token=token, expires_in=config.ttl_minutes * 60, role=user.role)
 
 
 @router.get("/me", response_model=EmployeeView, tags=["me"])
@@ -141,6 +152,17 @@ def my_team(access: AccessDep) -> list[EmployeeView]:
 @router.get("/team/approvals", response_model=list[LeaveRequestView], tags=["team"])
 def pending_approvals(access: AccessDep) -> list[LeaveRequestView]:
     return access.pending_approvals()
+
+
+@router.get("/me/tickets", response_model=list[TicketView], tags=["me"])
+def my_tickets(tickets: TicketsDep) -> list[TicketView]:
+    return tickets.mine()
+
+
+@router.get("/tickets/open", response_model=list[TicketView], tags=["tickets"])
+def open_tickets(tickets: TicketsDep) -> list[TicketView]:
+    """HR admins only: the queue of tickets still to handle."""
+    return tickets.queue()
 
 
 @router.get("/employees/{employee_id}", response_model=EmployeeView, tags=["employees"])

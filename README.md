@@ -31,6 +31,7 @@ and **never changes data without the user's confirmation**.
 | Employee | "Book PTO Nov 23–24 for a family visit" | Checks working days, holidays, overlaps and notice rules, then asks to confirm |
 | Employee | "What was my net pay in September?" | Calls the (mock) payroll service, with retries and a circuit breaker |
 | Employee | "Submit a claim: keyboard, 89.50 EUR, bought Oct 20" | Converts the currency, applies expense rules, asks to confirm |
+| Anyone | "My October payslip has the wrong tax code — can HR look?" | Opens an HR ticket (after confirming); "Tickets" page shows status and HR's resolution |
 | Manager | "What's waiting for my approval?" → "Approve Hira's leave" | Only their direct reports; never their own request; confirm first |
 | HR admin | everything above; any employee's record via the API | Salary reads are audited with a reason |
 | HR admin | "Average salary in Engineering in the US?" · "Headcount per country?" | Text-to-SQL over read-only views; the SQL is shown and audited |
@@ -284,7 +285,8 @@ agent or answer run uses most of a day's budget. Use `--ids` for a quick subset.
 |---|---|
 | `POST /auth/login` | anyone (failed logins audited) |
 | `POST /chat/{conversation_id}/messages` · `POST …/confirm` · `GET /chat/{id}` | logged in; own conversations only |
-| `GET /me`, `/me/leave`, `/me/salary`, `/team`, `/team/approvals`, `/employees/{id}[/salary]` | logged in; result depends on role |
+| `GET /me`, `/me/leave`, `/me/salary`, `/me/tickets`, `/team`, `/team/approvals`, `/employees/{id}[/salary]` | logged in; result depends on role |
+| `GET /tickets/open` | HR admins (403 for everyone else) |
 | `POST /rag/search`, `POST /rag/ask` | anyone (company-wide policy text) |
 
 Every response carries an `X-Request-ID` that appears on every log line of that request
@@ -330,7 +332,7 @@ src/hrm/agents/       LangGraph agent: tools, graph, guardrails, prompts, runner
                       router + specialists, factory
 src/hrm/analytics/    views schema, SQL guard (sqlglot), read-only runner, text-to-SQL service
 src/hrm/auth/         passwords (scrypt), JWT, user context, permission layer (HRAccess)
-src/hrm/workflows/    leave and expense rules (pure) and services
+src/hrm/workflows/    leave and expense rules (pure) and services; HR tickets
 src/hrm/db/           SQLAlchemy models, repository, seed, Alembic migrations
 src/hrm/integrations/ holidays, currency, payroll clients; retries, circuit breaker
 src/hrm/rag/          load, clean, chunk, embed, store, ingest, retrieval/, generation

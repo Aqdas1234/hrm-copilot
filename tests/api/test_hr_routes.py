@@ -10,8 +10,10 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from hrm.api.app import create_app
 from hrm.api.hr_routes import AuthConfig
+from hrm.auth.context import UserContext
 from hrm.auth.tokens import create_token
 from hrm.db.models import AuditLog, User
+from hrm.workflows.tickets import TicketService
 from tests.api.helpers import PASSWORD, SECRET, employee_id, login
 from tests.api.test_app import FakeService
 
@@ -199,3 +201,28 @@ def test_hr_admin_reads_any_salary_with_a_recorded_reason(
     with factory() as s:
         entry = s.scalar(select(AuditLog).where(AuditLog.action == "salary.read"))
         assert entry is not None and entry.details == {"reason": "annual review"}
+
+
+def test_login_returns_the_role_for_the_ui(client: TestClient) -> None:
+    response = client.post(
+        "/auth/login", json={"email": "carol.reyes@example.com", "password": PASSWORD}
+    )
+    assert response.json()["role"] == "hr_admin"
+
+
+def test_users_see_only_their_own_tickets_and_hr_sees_the_queue(
+    client: TestClient, factory: sessionmaker[Session]
+) -> None:
+    with factory() as s:
+        alice = s.scalar(select(User).where(User.email == "alice.park@example.com"))
+        assert alice is not None
+        TicketService(s, UserContext.from_user(alice)).open("payroll", "Tax code", "Details")
+        s.commit()
+
+    mine = client.get("/me/tickets", headers=login(client, "alice.park")).json()
+    others = client.get("/me/tickets", headers=login(client, "bob.chen")).json()
+    queue = client.get("/tickets/open", headers=login(client, "carol.reyes")).json()
+
+    assert [t["subject"] for t in mine] == ["Tax code"]
+    assert others == []
+    assert [t["subject"] for t in queue] == ["Tax code"]

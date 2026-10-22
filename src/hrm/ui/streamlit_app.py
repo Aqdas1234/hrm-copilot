@@ -7,6 +7,9 @@ Pages:
 - Assistant: chat with the agent; actions that change data show Confirm / Decline.
 - Approvals: leave requests waiting for the logged-in manager. Approve/Reject goes
   through the assistant, so it gets the same confirmation step and audit trail.
+- Tickets: your HR tickets; HR admins also see the open queue. Opening and updating
+  tickets goes through the assistant too. Ticket text is shown as plain text: employees
+  write it, and as markdown it could load outside images or links.
 - Policy Q&A: the public, cited policy search (no login).
 """
 
@@ -17,10 +20,13 @@ import streamlit as st
 
 from hrm.agents.runner import AgentReply
 from hrm.core.config import get_settings
+from hrm.db.models import Role
 from hrm.rag.models import Category
 from hrm.ui.client import ApiClient, ApiError
+from hrm.workflows.tickets import TicketView
 
-ASSISTANT, APPROVALS, POLICIES = "Assistant", "Approvals", "Policy Q&A"
+ASSISTANT, APPROVALS, TICKETS, POLICIES = "Assistant", "Approvals", "Tickets", "Policy Q&A"
+STATUS_ICON = {"open": "🟡", "in_progress": "🔵", "closed": "✅"}
 DEMO_USERS = "alice.park, hira.khan (employees) · bob.chen (manager) · carol.reyes (HR admin)"
 CATEGORY_LABELS: dict[Category | None, str] = {
     None: "All policies",
@@ -42,6 +48,8 @@ def main() -> None:
         login_page()
     elif page == ASSISTANT:
         assistant_page()
+    elif page == TICKETS:
+        tickets_page()
     else:
         approvals_page()
 
@@ -52,7 +60,7 @@ def main() -> None:
 def sidebar() -> str:
     with st.sidebar:
         st.title("HRM Copilot")
-        page = st.radio("Page", [ASSISTANT, APPROVALS, POLICIES], key="page")
+        page = st.radio("Page", [ASSISTANT, APPROVALS, TICKETS, POLICIES], key="page")
         if "token" in st.session_state:
             me = st.session_state.me
             st.markdown(f"**{me.name}**  \n{me.job_title}")
@@ -77,12 +85,13 @@ def login_page() -> None:
     st.caption(f"Demo users (@example.com): {DEMO_USERS}")
     if submitted:
         try:
-            token = api().login(email.strip(), password)
-            st.session_state.me = api(token).me()
+            login = api().login(email.strip(), password)
+            st.session_state.me = api(login.token).me()
         except ApiError as exc:
             show_error(exc)
             return
-        st.session_state.token = token
+        st.session_state.token = login.token
+        st.session_state.role = login.role
         st.rerun()
 
 
@@ -192,6 +201,55 @@ def new_conversation() -> None:
     st.session_state.conversation = st.session_state.conversations[-1]
 
 
+# --- tickets -------------------------------------------------------------------------------
+
+
+def tickets_page() -> None:
+    hr_admin = st.session_state.get("role") == Role.HR_ADMIN
+    try:
+        mine = api().my_tickets()
+        queue = api().ticket_queue() if hr_admin else []
+    except ApiError as exc:
+        show_error(exc)
+        return
+
+    st.subheader("My tickets")
+    st.button(
+        "Open a ticket with the assistant",
+        on_click=ask_assistant,
+        args=("I'd like to open an HR ticket.",),
+    )
+    if not mine:
+        st.info("You have no HR tickets.")
+    for t in mine:
+        ticket_card(t)
+
+    if hr_admin:
+        st.subheader("Open tickets (HR)")
+        if not queue:
+            st.info("The queue is empty.")
+        for t in queue:
+            ticket_card(t)
+            if t.status == "open":
+                st.button(
+                    "Start working on it",
+                    key=f"start-{t.id}",
+                    on_click=ask_assistant,
+                    args=(f"Set HR ticket #{t.id} to in progress.",),
+                )
+        st.caption("Close tickets through the assistant: it asks for the resolution.")
+
+
+def ticket_card(t: TicketView) -> None:
+    with st.container(border=True):
+        st.markdown(f"{STATUS_ICON[t.status]} **#{t.id}** · {t.category} · {t.status}")
+        st.text(t.subject)  # plain text: written by an employee
+        st.text(t.body)
+        if t.resolution:
+            st.markdown("**Resolution**")
+            st.text(t.resolution)
+
+
 # --- policy Q&A (public) -------------------------------------------------------------------
 
 
@@ -247,7 +305,7 @@ def show_error(exc: ApiError) -> None:
 
 
 def logout() -> None:
-    for key in ("token", "me", "conversations", "conversation", "queued"):
+    for key in ("token", "role", "me", "conversations", "conversation", "queued"):
         st.session_state.pop(key, None)
 
 

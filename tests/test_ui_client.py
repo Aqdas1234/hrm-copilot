@@ -77,3 +77,9 @@ def test_unreachable_api_suggests_starting_the_server() -> None:
 
     with pytest.raises(ApiError, match="hrm serve"):
         client.ask("q")
+
+
+def test_login_returns_the_token_and_role() -> None:
+    body = {"access_token": "t0k", "token_type": "bearer", "expires_in": 3600, "role": "hr_admin"}
+    login = client_returning(httpx.Response(200, json=body)).login("c@example.com", "pw")
+    assert (login.token, login.role) == ("t0k", "hr_admin")

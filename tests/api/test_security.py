@@ -36,6 +36,8 @@ ACCESS_RULES = {
     ("GET", "/me/salary"): AUTHENTICATED,
     ("GET", "/team"): AUTHENTICATED,
     ("GET", "/team/approvals"): AUTHENTICATED,
+    ("GET", "/me/tickets"): AUTHENTICATED,
+    ("GET", "/tickets/open"): AUTHENTICATED,
     ("GET", "/employees/{employee_id}"): AUTHENTICATED,
     ("GET", "/employees/{employee_id}/salary"): AUTHENTICATED,
     ("POST", "/chat/{conversation_id}/messages"): OWN_CONVERSATION,
@@ -52,6 +54,8 @@ MATRIX: list[tuple[str, tuple[int, int, int, int]]] = [
     ("/me/salary", (401, 200, 200, 200)),
     ("/team", (401, 200, 200, 200)),
     ("/team/approvals", (401, 200, 200, 200)),
+    ("/me/tickets", (401, 200, 200, 200)),
+    ("/tickets/open", (401, 403, 403, 200)),  # HR admins only
     ("/employees/{alice}", (401, 200, 200, 200)),
     ("/employees/{hira}", (401, 403, 200, 200)),
     ("/employees/{bob}", (401, 403, 200, 200)),

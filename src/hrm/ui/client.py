@@ -7,12 +7,15 @@ come from the API, so a browser refresh or a second tab shows the same state.
 from typing import Any
 
 import httpx
+from pydantic import BaseModel
 
 from hrm.agents.runner import AgentReply
 from hrm.api.chat_routes import Conversation
 from hrm.api.schemas import AskResponse
 from hrm.auth.access import EmployeeView, LeaveRequestView
+from hrm.db.models import Role
 from hrm.rag.models import Category
+from hrm.workflows.tickets import TicketView
 
 REQUEST_ID_HEADER = "X-Request-ID"
 
@@ -30,6 +33,11 @@ class ApiError(Exception):
     @property
     def login_expired(self) -> bool:
         return self.status_code == 401
+
+
+class Login(BaseModel):
+    token: str
+    role: Role  # what to show; the API enforces it on every request
 
 
 class ApiClient:
@@ -50,10 +58,9 @@ class ApiClient:
         body = self._call("POST", "/rag/ask", {"question": question, "category": category})
         return AskResponse.model_validate(body)
 
-    def login(self, email: str, password: str) -> str:
-        """Returns the access token."""
+    def login(self, email: str, password: str) -> Login:
         body = self._call("POST", "/auth/login", {"email": email, "password": password})
-        return str(body["access_token"])
+        return Login(token=body["access_token"], role=body["role"])
 
     # --- logged in ------------------------------------------------------------------------
 
@@ -62,6 +69,12 @@ class ApiClient:
 
     def team(self) -> list[EmployeeView]:
         return [EmployeeView.model_validate(e) for e in self._call("GET", "/team")]
+
+    def my_tickets(self) -> list[TicketView]:
+        return [TicketView.model_validate(t) for t in self._call("GET", "/me/tickets")]
+
+    def ticket_queue(self) -> list[TicketView]:
+        return [TicketView.model_validate(t) for t in self._call("GET", "/tickets/open")]
 
     def approvals(self) -> list[LeaveRequestView]:
         return [LeaveRequestView.model_validate(r) for r in self._call("GET", "/team/approvals")]

@@ -1,6 +1,6 @@
 """The Streamlit app, run headless with Streamlit's AppTest; the API is a fake backend."""
 
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -11,8 +11,9 @@ from hrm.agents.runner import AgentReply, ChatMessage, PendingAction
 from hrm.api.chat_routes import Conversation
 from hrm.api.schemas import AskResponse
 from hrm.auth.access import EmployeeView, LeaveRequestView
-from hrm.db.models import RequestStatus
-from hrm.ui.client import ApiClient, ApiError
+from hrm.db.models import RequestStatus, Role, TicketCategory, TicketStatus
+from hrm.ui.client import ApiClient, ApiError, Login
+from hrm.workflows.tickets import TicketView
 from tests.test_ui_client import ASK_OK
 
 PAGE = Path(__file__).parents[1] / "src" / "hrm" / "ui" / "streamlit_app.py"
@@ -28,6 +29,18 @@ BOB = EmployeeView(
     start_date=date(2021, 1, 1),
 )
 ALICE = BOB.model_copy(update={"id": 3, "name": "Alice Park", "job_title": "Software Engineer"})
+TICKET = TicketView(
+    id=7,
+    employee_id=3,
+    category=TicketCategory.ACCESS,
+    subject="Badge broken",
+    body="It stopped working. ![x](https://evil.example/track.png)",
+    status=TicketStatus.OPEN,
+    resolution=None,
+    created_at=datetime(2026, 10, 22, 9, 0),
+    updated_at=None,
+    closed_at=None,
+)
 PENDING = AgentReply(
     kind="confirm",
     text="Please confirm",
@@ -63,13 +76,20 @@ class FakeBackend:
 
             return call
 
-        for name in ("login", "me", "team", "approvals", "send", "confirm", "conversation", "ask"):
+        names = ("login", "me", "team", "approvals", "send", "confirm", "conversation", "ask")
+        for name in (*names, "my_tickets", "ticket_queue"):
             monkeypatch.setattr(ApiClient, name, method(name))
 
-    def do_login(self, email: str, password: str) -> str:
+    def do_login(self, email: str, password: str) -> Login:
         if password != "right":
             raise ApiError("Invalid email or password.", status_code=401)
-        return "token"
+        return Login(token="token", role=Role.MANAGER)
+
+    def do_my_tickets(self) -> list[TicketView]:
+        return [TICKET.model_copy(update={"id": 1, "subject": "My own question"})]
+
+    def do_ticket_queue(self) -> list[TicketView]:
+        return [TICKET]
 
     def do_me(self) -> EmployeeView:
         return BOB
@@ -122,9 +142,10 @@ def backend(monkeypatch: pytest.MonkeyPatch) -> FakeBackend:
     return fake
 
 
-def logged_in(page: str = "Assistant") -> AppTest:
+def logged_in(page: str = "Assistant", role: Role = Role.MANAGER) -> AppTest:
     app = AppTest.from_file(str(PAGE))
     app.session_state["token"] = "token"
+    app.session_state["role"] = role
     app.session_state["me"] = BOB
     app.session_state["page"] = page
     app.run()
@@ -152,6 +173,7 @@ def test_logging_in_shows_the_user(backend: FakeBackend) -> None:
 
     assert not app.exception
     assert "Bob Chen" in " ".join(m.value for m in app.sidebar.markdown)
+    assert app.session_state["role"] == Role.MANAGER
 
 
 def test_a_wrong_password_shows_the_error(backend: FakeBackend) -> None:
@@ -221,6 +243,34 @@ def test_approvals_show_names_and_go_through_the_assistant(backend: FakeBackend)
 
     assert backend.sent == ["Approve leave request #6."]
     assert app.session_state["page"] == "Assistant"
+
+
+# --- tickets -------------------------------------------------------------------------------
+
+
+def test_employees_see_their_tickets_but_not_the_queue(backend: FakeBackend) -> None:
+    app = logged_in("Tickets")
+    texts = [t.value for t in app.text]
+    assert "My own question" in texts
+    assert "Badge broken" not in texts
+    assert [s.value for s in app.subheader] == ["My tickets"]
+
+
+def test_hr_admins_also_see_the_queue_and_start_through_the_assistant(
+    backend: FakeBackend,
+) -> None:
+    app = logged_in("Tickets", Role.HR_ADMIN)
+    assert [s.value for s in app.subheader] == ["My tickets", "Open tickets (HR)"]
+
+    next(b for b in app.button if b.label == "Start working on it").click().run()
+
+    assert backend.sent == ["Set HR ticket #7 to in progress."]
+
+
+def test_ticket_text_is_shown_as_plain_text_not_markdown(backend: FakeBackend) -> None:
+    app = logged_in("Tickets", Role.HR_ADMIN)
+    assert any("![x](https://evil.example/track.png)" in t.value for t in app.text)
+    assert not any("evil.example" in m.value for m in app.markdown)
 
 
 # --- policy Q&A ----------------------------------------------------------------------------

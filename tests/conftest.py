@@ -3,8 +3,10 @@ from typing import Any
 
 import pytest
 import structlog
+from sqlalchemy.orm import Session, sessionmaker
 
 from hrm.core.config import Settings
+from hrm.db.session import create_schema, make_engine
 
 MakeSettings = Callable[..., Settings]
 
@@ -24,3 +26,13 @@ def make_settings() -> MakeSettings:
         return Settings(_env_file=None, **overrides)
 
     return _make
+
+
+@pytest.fixture
+def session() -> Iterator[Session]:
+    """A fresh in-memory SQLite HR database per test (foreign keys enforced)."""
+    engine = make_engine("sqlite://")
+    create_schema(engine)
+    with sessionmaker(engine)() as s:
+        yield s
+    engine.dispose()

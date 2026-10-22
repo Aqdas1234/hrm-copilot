@@ -82,6 +82,11 @@ class Settings(BaseSettings):
     # Password of the scripted demo users created by `hrm db seed` (demo data only).
     demo_password: SecretStr = SecretStr("hrm-demo-123")
 
+    # --- External services (Part B) ---
+    holidays_api_url: str = "https://date.nager.at/api/v3"
+    http_timeout_s: float = Field(default=10.0, gt=0)
+    http_retries: int = Field(default=3, ge=1)  # attempts, including the first
+
     # --- UI ---
     api_url: str = "http://127.0.0.1:8000"  # where the Streamlit page finds the API
 

@@ -116,6 +116,11 @@ def holidays_between(session: Session, country: str, start: date, end: date) -> 
     )
 
 
+def add_holidays(session: Session, holidays: list[PublicHoliday]) -> None:
+    session.add_all(holidays)
+    session.flush()
+
+
 # --- expenses -----------------------------------------------------------------------------
 
 

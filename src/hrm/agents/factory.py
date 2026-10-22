@@ -14,9 +14,10 @@ from datetime import date
 import httpx
 from langchain_core.language_models import BaseChatModel
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.graph.state import CompiledStateGraph
 from sqlalchemy.orm import Session
 
-from hrm.agents.graph import AgentLimits, build_agent
+from hrm.agents.graph import AgentLimits, AgentState, build_agent
 from hrm.agents.prompts import system_prompt
 from hrm.agents.router import build_router_agent
 from hrm.agents.runner import AgentRunner
@@ -66,6 +67,12 @@ class AgentFactory:
         )
 
     def runner(self, session: Session, user: UserContext, today: date | None = None) -> AgentRunner:
+        return AgentRunner(self.graph(session, user, today))
+
+    def graph(
+        self, session: Session, user: UserContext, today: date | None = None
+    ) -> CompiledStateGraph[AgentState]:
+        """The compiled agent for this user; runner() wraps it. Evaluations read its state."""
         today = today or date.today()
         employee = repo.get_employee(session, user.employee_id)
         if employee is None:  # a user always has an employee record (foreign key)
@@ -88,9 +95,7 @@ class AgentFactory:
         prompt = system_prompt(name=employee.full_name, role=user.role, today=today)
         limits = AgentLimits.from_settings(self.settings)
         if self.settings.agent_mode == "router":
-            agent = build_router_agent(
+            return build_router_agent(
                 self.llm, self.llm, tools, prompt, limits, checkpointer=self.checkpointer
             )
-        else:
-            agent = build_agent(self.llm, tools, prompt, limits, checkpointer=self.checkpointer)
-        return AgentRunner(agent)
+        return build_agent(self.llm, tools, prompt, limits, checkpointer=self.checkpointer)

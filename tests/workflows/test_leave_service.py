@@ -14,19 +14,13 @@ from sqlalchemy.orm import Session
 from hrm.auth.access import AccessDeniedError
 from hrm.auth.context import UserContext
 from hrm.db import repository as repo
-from hrm.db.models import AuditLog, HolidaySource, RequestStatus
+from hrm.db.models import AuditLog, RequestStatus
 from hrm.db.seed import seed
-from hrm.integrations.holidays import Holiday
 from hrm.workflows.leave import LeaveService
 from hrm.workflows.leave_rules import LeaveRuleError
+from tests.fakes import FakeHolidays
 
 TODAY = date(2026, 10, 22)
-IQBAL_DAY = date(2026, 11, 9)
-
-
-class FakeHolidays:
-    def holidays(self, country: str, year: int) -> list[Holiday]:
-        return [Holiday(IQBAL_DAY, "Iqbal Day", HolidaySource.MANUAL)] if country == "PK" else []
 
 
 @pytest.fixture

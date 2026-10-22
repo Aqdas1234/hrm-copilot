@@ -178,6 +178,19 @@ def get_expense_claim(session: Session, claim_id: int) -> ExpenseClaim | None:
     return session.get(ExpenseClaim, claim_id)
 
 
+def pending_expenses_for_approver(session: Session, approver_id: int) -> list[ExpenseClaim]:
+    return list(
+        session.scalars(
+            select(ExpenseClaim)
+            .where(
+                ExpenseClaim.approver_id == approver_id,
+                ExpenseClaim.status == RequestStatus.PENDING,
+            )
+            .order_by(ExpenseClaim.submitted_at)
+        )
+    )
+
+
 def expense_claims_for(session: Session, employee_id: int) -> list[ExpenseClaim]:
     return list(
         session.scalars(

@@ -4,7 +4,12 @@ import hashlib
 import math
 import re
 from collections.abc import Sequence
+from datetime import date
+from decimal import Decimal
 
+from hrm.db.models import HolidaySource, RateSource
+from hrm.integrations.currency import Conversion
+from hrm.integrations.holidays import Holiday
 from hrm.rag.embeddings import Vector
 from hrm.rag.models import Category, Chunk, ScoredChunk
 
@@ -96,3 +101,27 @@ class FakeReranker:
         self.calls.append((query, list(texts)))
         words = set(_WORD.findall(query.lower()))
         return [float(len(words & set(_WORD.findall(t.lower())))) for t in texts]
+
+
+IQBAL_DAY = date(2026, 11, 9)  # a public holiday in Pakistan
+FAKE_RATES = {"USD": Decimal(1), "EUR": Decimal("1.1225"), "PKR": Decimal("0.0036")}
+
+
+class FakeHolidays:
+    """Pakistan has Iqbal Day; every other country has no holidays."""
+
+    def holidays(self, country: str, year: int) -> list[Holiday]:
+        return [Holiday(IQBAL_DAY, "Iqbal Day", HolidaySource.MANUAL)] if country == "PK" else []
+
+
+class FakeRates:
+    """Fixed exchange rates; records each lookup."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[int, str, date]] = []
+
+    def to_usd(self, amount_cents: int, currency: str, on: date) -> Conversion:
+        self.calls.append((amount_cents, currency, on))
+        rate = FAKE_RATES[currency]
+        source = None if currency == "USD" else RateSource.API
+        return Conversion(amount_cents, currency, int(amount_cents * rate), rate, on, source)

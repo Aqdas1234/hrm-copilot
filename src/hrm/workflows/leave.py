@@ -13,15 +13,17 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import NoReturn, Protocol
 
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from hrm.auth.access import AccessDeniedError, LeaveRequestView
 from hrm.auth.context import UserContext
 from hrm.db import repository as repo
-from hrm.db.models import LeaveBalance, LeaveRequest, RequestStatus
+from hrm.db.models import LeaveBalance, LeaveRequest, LeaveType, RequestStatus
 from hrm.integrations.holidays import Holiday
 from hrm.workflows.leave_rules import (
     LeaveContext,
+    LeavePlan,
     LeaveRequestDraft,
     LeaveRuleError,
     Period,
@@ -40,6 +42,14 @@ class LeaveOutcome(LeaveRequestView):
     warnings: list[str]
 
 
+class LeavePreview(BaseModel):
+    leave_type: str
+    start_date: date
+    end_date: date
+    working_days: float
+    warnings: list[str]
+
+
 class LeaveService:
     def __init__(
         self, session: Session, ctx: UserContext, holidays: HolidayLookup, today: date
@@ -49,42 +59,24 @@ class LeaveService:
         self._holidays = holidays
         self._today = today
 
+    def preview(self, leave_code: str, start: date, end: date) -> LeavePreview:
+        """Run every rule without saving anything ("check before you ask")."""
+        plan, _ = self._plan(leave_code, start, end)
+        return LeavePreview(
+            leave_type=leave_code,
+            start_date=start,
+            end_date=end,
+            working_days=float(plan.day_count),
+            warnings=plan.warnings,
+        )
+
     def request(
         self, leave_code: str, start: date, end: date, reason: str | None = None
     ) -> LeaveOutcome:
-        employee = repo.get_employee(self._session, self._ctx.employee_id)
-        leave_type = repo.leave_type(self._session, leave_code)
-        if employee is None or leave_type is None:
-            raise LeaveRuleError(
-                [Violation("unknown_leave_type", f"Unknown leave type '{leave_code}'.")]
-            )
-        if start.year != end.year:
-            raise LeaveRuleError(
-                [
-                    Violation(
-                        "spans_years",
-                        "Please split leave that crosses the new year into two requests.",
-                    )
-                ]
-            )
-
-        balance = repo.leave_balance(self._session, employee.id, leave_code, start.year)
-        holidays = frozenset(h.day for h in self._holidays.holidays(employee.country, start.year))
-        context = LeaveContext(
-            today=self._today,
-            holidays=holidays,
-            existing=tuple(
-                Period(r.start_date, r.end_date)
-                for r in repo.active_leave_for(self._session, employee.id)
-            ),
-            allowed_days=balance.allowed_days if balance else leave_type.annual_days,
-            used_days=balance.used_days if balance else Decimal(0),
-            manager_id=employee.manager_id,
-        )
-        plan = plan_leave(LeaveRequestDraft(leave_code, start, end), context)
+        plan, leave_type = self._plan(leave_code, start, end)
 
         request = LeaveRequest(
-            employee_id=employee.id,
+            employee_id=self._ctx.employee_id,  # always the logged-in user: no "on behalf of"
             leave_type=leave_type,
             start_date=start,
             end_date=end,
@@ -128,6 +120,39 @@ class LeaveService:
             self._deny("leave.cancel", request_id)
         self._require_pending(request)
         return self._decide(request, RequestStatus.CANCELLED, "leave.cancel", None)
+
+    def _plan(self, leave_code: str, start: date, end: date) -> tuple[LeavePlan, LeaveType]:
+        """The shared checks behind preview() and request(), so they can never disagree."""
+        employee = repo.get_employee(self._session, self._ctx.employee_id)
+        leave_type = repo.leave_type(self._session, leave_code)
+        if employee is None or leave_type is None:
+            raise LeaveRuleError(
+                [Violation("unknown_leave_type", f"Unknown leave type '{leave_code}'.")]
+            )
+        if start.year != end.year:
+            raise LeaveRuleError(
+                [
+                    Violation(
+                        "spans_years",
+                        "Please split leave that crosses the new year into two requests.",
+                    )
+                ]
+            )
+
+        balance = repo.leave_balance(self._session, employee.id, leave_code, start.year)
+        holidays = frozenset(h.day for h in self._holidays.holidays(employee.country, start.year))
+        context = LeaveContext(
+            today=self._today,
+            holidays=holidays,
+            existing=tuple(
+                Period(r.start_date, r.end_date)
+                for r in repo.active_leave_for(self._session, employee.id)
+            ),
+            allowed_days=balance.allowed_days if balance else leave_type.annual_days,
+            used_days=balance.used_days if balance else Decimal(0),
+            manager_id=employee.manager_id,
+        )
+        return plan_leave(LeaveRequestDraft(leave_code, start, end), context), leave_type
 
     # --- helpers --------------------------------------------------------------------------
 

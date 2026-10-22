@@ -125,6 +125,11 @@ class ExpenseService:
             ExpenseView.of(c) for c in repo.expense_claims_for(self._session, self._ctx.employee_id)
         ]
 
+    def pending_approvals(self) -> list[ExpenseView]:
+        """Claims waiting for this user's decision."""
+        claims = repo.pending_expenses_for_approver(self._session, self._ctx.employee_id)
+        return [ExpenseView.of(c) for c in claims]
+
     def approve(self, claim_id: int, note: str | None = None) -> ExpenseView:
         return self._decide(
             self._decidable(claim_id), RequestStatus.APPROVED, "expense.approve", note

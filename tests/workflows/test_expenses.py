@@ -5,7 +5,6 @@ laptop claim has no approver (Bob has no manager); Carol is HR admin.
 """
 
 from datetime import date, timedelta
-from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
@@ -14,31 +13,13 @@ from sqlalchemy.orm import Session
 from hrm.auth.access import AccessDeniedError
 from hrm.auth.context import UserContext
 from hrm.db import repository as repo
-from hrm.db.models import AuditLog, RateSource, RequestStatus
+from hrm.db.models import AuditLog, RequestStatus
 from hrm.db.seed import seed
-from hrm.integrations.currency import Conversion
 from hrm.workflows.expense_rules import ExpensePlan, ExpenseRuleError, check_expense
 from hrm.workflows.expenses import ExpenseService
+from tests.fakes import FakeRates
 
 TODAY = date(2026, 10, 22)
-RATES = {"USD": Decimal(1), "EUR": Decimal("1.1225"), "PKR": Decimal("0.0036")}
-
-
-class FakeRates:
-    def __init__(self) -> None:
-        self.calls: list[tuple[int, str, date]] = []
-
-    def to_usd(self, amount_cents: int, currency: str, on: date) -> Conversion:
-        self.calls.append((amount_cents, currency, on))
-        rate = RATES[currency]
-        return Conversion(
-            amount_cents,
-            currency,
-            int(amount_cents * rate),
-            rate,
-            on,
-            None if currency == "USD" else RateSource.API,
-        )
 
 
 @pytest.fixture

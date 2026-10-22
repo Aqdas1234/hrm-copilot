@@ -24,6 +24,7 @@ from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from hrm.analytics.service import AnalyticsService
 from hrm.auth.access import HRAccess
 from hrm.auth.context import UserContext
 from hrm.core.errors import HRMError
@@ -52,6 +53,7 @@ class ToolDeps:
     rates: RateLookup
     payroll: PayrollClient
     today: date
+    analytics: AnalyticsService | None = None  # set for HR admins when analytics is configured
 
 
 def build_tools(deps: ToolDeps) -> list[BaseTool]:
@@ -59,6 +61,8 @@ def build_tools(deps: ToolDeps) -> list[BaseTool]:
     tools = [make_policy_search_tool(deps.policies), *_self_service_tools(deps)]
     if _manages_people(deps):
         tools += _team_tools(deps)
+    if deps.user.is_hr_admin and deps.analytics is not None:
+        tools.append(_analytics_tool(deps.analytics))
     return tools
 
 
@@ -305,6 +309,37 @@ def _team_tools(deps: ToolDeps) -> list[BaseTool]:
 
     _mark_writes(decide_leave_request, decide_expense_claim)
     return [list_my_team, list_pending_approvals, decide_leave_request, decide_expense_claim]
+
+
+# --- HR admins only -------------------------------------------------------------------------
+
+ANALYTICS_ROWS_FOR_MODEL = 50
+
+
+def _analytics_tool(analytics: AnalyticsService) -> BaseTool:
+    @tool(parse_docstring=True)
+    @_safe
+    def query_hr_analytics(question: str) -> str:
+        """Workforce statistics for HR admins: headcount, leave usage, expense totals and
+        salary ranges by group, answered with a read-only SQL query. Individual salaries
+        are not available. Include the SQL from the result in your answer.
+
+        Args:
+            question: The statistics question in plain words, e.g. "people per country".
+        """
+        answer = analytics.answer(_text(question, 500) or "")
+        shown = answer.rows[:ANALYTICS_ROWS_FOR_MODEL]
+        return _json(
+            {
+                "sql": answer.sql,
+                "explanation": answer.explanation,
+                "columns": answer.columns,
+                "rows": shown,
+                "more_rows": answer.truncated or len(answer.rows) > len(shown),
+            }
+        )
+
+    return query_hr_analytics
 
 
 def _manages_people(deps: ToolDeps) -> bool:

@@ -14,6 +14,7 @@ from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from sqlalchemy import Connection, Engine, inspect
 
 from hrm.core.errors import HRMError
@@ -40,15 +41,26 @@ def current_revision(engine: Engine) -> str | None:
         return MigrationContext.configure(connection).get_current_revision()
 
 
+def head_revision() -> str:
+    """The latest migration in migrations/versions."""
+    head = ScriptDirectory.from_config(_config(None)).get_current_head()
+    assert head is not None
+    return head
+
+
 def drop_everything(engine: Engine) -> None:
-    """All tables, including Alembic's version table (for `hrm db seed --reset`)."""
+    """Views, tables and Alembic's version table (for `hrm db seed --reset`).
+    drop_all() knows only the models' tables, not the views migrations created."""
+    with engine.begin() as connection:
+        for view in inspect(connection).get_view_names():
+            connection.exec_driver_sql(f"DROP VIEW {view}")
     Base.metadata.drop_all(engine)
     if inspect(engine).has_table("alembic_version"):
         with engine.begin() as connection:
             connection.exec_driver_sql("DROP TABLE alembic_version")
 
 
-def _config(connection: Connection) -> Config:
+def _config(connection: Connection | None) -> Config:
     config = Config()
     config.set_main_option("script_location", str(MIGRATIONS_DIR))
     config.attributes["connection"] = connection

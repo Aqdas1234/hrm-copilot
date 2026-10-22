@@ -9,6 +9,8 @@ x-app: &app
   environment: &app-env
     HRM_DATABASE_URL: mysql+pymysql://hrm:${MYSQL_PASSWORD:?set MYSQL_PASSWORD in .env}@mysql:3306/hrm
     HRM_PAYROLL_API_URL: http://payroll:8090
+    # Read-only account for HR admins' analytics questions (docker/mysql-init).
+    HRM_ANALYTICS_DATABASE_URL: mysql+pymysql://hrm_analytics:${MYSQL_ANALYTICS_PASSWORD:?set MYSQL_ANALYTICS_PASSWORD in .env}@mysql:3306/hrm
     HRM_LOG_FORMAT: json  # one JSON object per line, for log collectors
   restart: unless-stopped
 
@@ -20,8 +22,10 @@ services:
       MYSQL_USER: hrm
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD in .env}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_ANALYTICS_PASSWORD: ${MYSQL_ANALYTICS_PASSWORD:?set MYSQL_ANALYTICS_PASSWORD in .env}
     volumes:
       - mysql-data:/var/lib/mysql
+      - ./docker/mysql-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "hrm", "-p$$MYSQL_PASSWORD"]
       interval: 5s
@@ -30,10 +34,15 @@ services:
     restart: unless-stopped
     # Not published: only the other containers reach it.
 
-  # One-off job: bring the schema up to date, add demo data to an empty database.
+  # One-off job: bring the schema up to date, let the analytics account read the views,
+  # add demo data to an empty database.
   setup:
     <<: *app
-    command: ["sh", "-c", "hrm db upgrade && hrm db seed --if-empty"]
+    command: ["sh", "-c", "hrm db upgrade && hrm db grant-analytics && hrm db seed --if-empty"]
+    environment:
+      <<: *app-env
+      # Only this one-off job may grant rights; the API and UI never get admin credentials.
+      HRM_DATABASE_ADMIN_URL: mysql+pymysql://root:${MYSQL_ROOT_PASSWORD}@mysql:3306/hrm
     depends_on:
       mysql: { condition: service_healthy }
     restart: "no"

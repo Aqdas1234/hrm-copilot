@@ -22,6 +22,7 @@ from hrm.core.config import get_settings
 from hrm.core.errors import HRMError
 from hrm.core.llm import get_answer_model, get_fast_model
 from hrm.core.logging import configure_logging, get_logger
+from hrm.db.grants import grant_analytics_access
 from hrm.db.migrate import current_revision, drop_everything, upgrade
 from hrm.db.models import Compensation, Employee
 from hrm.db.seed import DatabaseNotEmptyError, seed
@@ -297,6 +298,23 @@ def db_upgrade() -> None:
         raise typer.Exit(code=1) from exc
     url = engine.url.render_as_string(hide_password=True)
     typer.echo(f"Database ready at schema version {revision}: {url}")
+
+
+@db_app.command("grant-analytics")
+def db_grant_analytics() -> None:
+    """Let the read-only analytics account read the analytics views (needs an admin URL)."""
+    settings = get_settings()
+    if settings.database_admin_url is None:
+        typer.echo("Error: set HRM_DATABASE_ADMIN_URL (an account allowed to GRANT).", err=True)
+        raise typer.Exit(code=1)
+    admin = make_engine(settings.database_admin_url.get_secret_value())
+    database = make_engine(settings.database_url.get_secret_value()).url.database or ""
+    try:
+        statements = grant_analytics_access(admin, database)
+    except Exception as exc:  # unreachable server, missing account, not allowed to grant
+        typer.echo(f"Error: could not grant: {type(exc).__name__}: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"Granted read access on {len(statements)} analytics views.")
 
 
 @db_app.command("seed")

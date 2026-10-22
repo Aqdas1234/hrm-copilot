@@ -9,6 +9,7 @@ from hrm import __version__
 from hrm.cli import app
 from hrm.core.config import get_settings
 from hrm.core.errors import LLMError
+from hrm.db.migrate import head_revision
 from hrm.rag.models import Citation, PolicyAnswer
 from hrm.rag.service import AnswerResult
 from tests.fakes import FakeEmbedder, FakeReranker
@@ -199,7 +200,7 @@ def test_db_upgrade_creates_the_tables(monkeypatch: pytest.MonkeyPatch, tmp_path
     get_settings.cache_clear()
 
     assert result.exit_code == 0, result.output
-    assert "Database ready at schema version 0001" in result.stdout
+    assert f"Database ready at schema version {head_revision()}" in result.stdout
     assert again.exit_code == 0, again.output
 
 

@@ -81,6 +81,12 @@ class Settings(BaseSettings):
     jwt_ttl_minutes: int = Field(default=60, gt=0)
     # Password of the scripted demo users created by `hrm db seed` (demo data only).
     demo_password: SecretStr = SecretStr("hrm-demo-123")
+    # A separate, read-only account for HR admins' analytics questions; it should be able to
+    # read only the analytics views (docker/mysql-init). Unset: analytics is turned off. There
+    # is deliberately no fallback to database_url, whose account can write.
+    analytics_database_url: SecretStr | None = None
+    # Admin connection used only by `hrm db grant-analytics` (the set-up job); never the API.
+    database_admin_url: SecretStr | None = None
 
     # --- External services (Part B) ---
     holidays_api_url: str = "https://date.nager.at/api/v3"

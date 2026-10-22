@@ -8,7 +8,13 @@ from alembic.runtime.migration import MigrationContext
 from sqlalchemy import Engine, inspect, text
 from sqlalchemy.exc import IntegrityError
 
-from hrm.db.migrate import SchemaMismatchError, current_revision, drop_everything, upgrade
+from hrm.db.migrate import (
+    SchemaMismatchError,
+    current_revision,
+    drop_everything,
+    head_revision,
+    upgrade,
+)
 from hrm.db.models import Base
 from hrm.db.session import create_schema, make_engine
 
@@ -30,7 +36,7 @@ def test_migrations_match_the_models(engine: Engine) -> None:
 def test_upgrade_is_versioned_and_idempotent(engine: Engine) -> None:
     upgrade(engine)
     upgrade(engine)
-    assert current_revision(engine) == "0001"
+    assert current_revision(engine) == head_revision()
     assert set(Base.metadata.tables) <= set(inspect(engine).get_table_names())
 
 
@@ -51,6 +57,7 @@ def test_reset_drops_the_version_table_too(engine: Engine) -> None:
     upgrade(engine)
     drop_everything(engine)
     assert inspect(engine).get_table_names() == []
+    assert inspect(engine).get_view_names() == []
 
     upgrade(engine)  # a reset database is rebuilt, not mistaken for an up-to-date one
     assert "employees" in inspect(engine).get_table_names()
@@ -58,8 +65,9 @@ def test_reset_drops_the_version_table_too(engine: Engine) -> None:
 
 def test_a_database_created_before_migrations_is_adopted(engine: Engine) -> None:
     create_schema(engine)  # how `hrm db init` used to create it
-    upgrade(engine)
-    assert current_revision(engine) == "0001"
+    upgrade(engine)  # adopted as the baseline, then upgraded from there
+    assert current_revision(engine) == head_revision()
+    assert "v_employees" in inspect(engine).get_view_names()
 
 
 def test_an_unversioned_database_that_differs_is_refused(engine: Engine) -> None:

@@ -22,9 +22,11 @@ from hrm.agents.prompts import system_prompt
 from hrm.agents.router import build_router_agent
 from hrm.agents.runner import AgentRunner
 from hrm.agents.tools import ToolDeps, build_tools
+from hrm.analytics.runner import AnalyticsRunner, make_analytics_engine
+from hrm.analytics.service import AnalyticsService, SQLDraft, SQLWriter
 from hrm.auth.context import UserContext
 from hrm.core.config import Settings
-from hrm.core.llm import get_fast_model
+from hrm.core.llm import get_answer_model, get_fast_model
 from hrm.db import repository as repo
 from hrm.integrations.currency import CurrencyService
 from hrm.integrations.holidays import HolidayService
@@ -42,6 +44,9 @@ class AgentFactory:
     http: HTTPGetter
     payroll: PayrollClient
     checkpointer: BaseCheckpointSaver[str]
+    # HR admins' analytics questions; both None when HRM_ANALYTICS_DATABASE_URL is unset.
+    sql_writer: SQLWriter | None = None
+    analytics_runner: AnalyticsRunner | None = None
 
     @classmethod
     def from_settings(
@@ -53,6 +58,7 @@ class AgentFactory:
     ) -> "AgentFactory":
         """`policies`: an already loaded RAGService (the API shares its own), else a new one."""
         http = httpx.Client(timeout=settings.http_timeout_s)
+        analytics_url = settings.analytics_database_url
         return cls(
             settings=settings,
             # The small model decides which tools to call; policy answers inside
@@ -64,6 +70,15 @@ class AgentFactory:
                 http, base_url=settings.payroll_api_url, attempts=settings.http_retries
             ),
             checkpointer=checkpointer,
+            # SQL quality matters more than speed here: the large model writes it.
+            sql_writer=get_answer_model(settings).with_structured_output(SQLDraft)
+            if analytics_url
+            else None,
+            analytics_runner=AnalyticsRunner(
+                make_analytics_engine(analytics_url.get_secret_value())
+            )
+            if analytics_url
+            else None,
         )
 
     def runner(self, session: Session, user: UserContext, today: date | None = None) -> AgentRunner:
@@ -90,6 +105,7 @@ class AgentFactory:
             ),
             payroll=self.payroll,
             today=today,
+            analytics=self._analytics(session, user, today),
         )
         tools = build_tools(deps)
         prompt = system_prompt(name=employee.full_name, role=user.role, today=today)
@@ -99,3 +115,8 @@ class AgentFactory:
                 self.llm, self.llm, tools, prompt, limits, checkpointer=self.checkpointer
             )
         return build_agent(self.llm, tools, prompt, limits, checkpointer=self.checkpointer)
+
+    def _analytics(self, session: Session, user: UserContext, day: date) -> AnalyticsService | None:
+        if not user.is_hr_admin or self.sql_writer is None or self.analytics_runner is None:
+            return None
+        return AnalyticsService(session, user, self.sql_writer, self.analytics_runner, day)

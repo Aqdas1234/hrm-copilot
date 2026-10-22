@@ -33,6 +33,7 @@ and **never changes data without the user's confirmation**.
 | Employee | "Submit a claim: keyboard, 89.50 EUR, bought Oct 20" | Converts the currency, applies expense rules, asks to confirm |
 | Manager | "What's waiting for my approval?" → "Approve Hira's leave" | Only their direct reports; never their own request; confirm first |
 | HR admin | everything above; any employee's record via the API | Salary reads are audited with a reason |
+| HR admin | "Average salary in Engineering in the US?" · "Headcount per country?" | Text-to-SQL over read-only views; the SQL is shown and audited |
 
 ## Quick start
 
@@ -99,6 +100,7 @@ database and the conversation always agree.
 | Confirmation | `interrupt` + checkpointer, resumed in a later request | The user approves exactly the arguments that run |
 | Memory | Separate SQLite file, thread id = user + conversation | Chat history is not HR data; a user cannot even name another user's thread |
 | HR data | SQLAlchemy 2 on MySQL, Alembic migrations | Real constraints (CHECK, FK, unique); schema changes are versioned |
+| Analytics | Text-to-SQL over views, checked by sqlglot, run by a read-only account | HR gets statistics; code — not the model — decides what runs |
 | Rules | Pure functions (`workflows/*_rules.py`) | Leave and expense rules are testable without a database or an LLM |
 | Integrations | Retries, a circuit breaker, DB-first caches | External APIs fail; the agent explains instead of crashing |
 
@@ -118,6 +120,31 @@ Ten layers, from the strongest (code) to defence in depth:
 | 8 | Output guard | `check_output` | System-prompt leaks (canary), secrets (keys, tokens, hashes) |
 | 9 | Limits | `AgentLimits`, rate limiter | Runaway loops (8 steps, 6 tool runs), floods (6 msgs/min/user) |
 | 10 | Audit and evaluation | `audit_log`, `evals/run_agent.py` | Every change and refusal recorded; 15 attack cases must all fail |
+
+## Analytics for HR admins (text-to-SQL)
+
+gpt-oss-120b writes one MySQL query for the question; **code decides whether it may run**:
+
+| Layer | Stops |
+|---|---|
+| A separate account, `hrm_analytics`, granted `SELECT` on five **views** only | Reading `compensation`, `users`, the audit log — even with a query no check caught (verified: `SELECT … FROM compensation` → *command denied*) |
+| Views without free text, contact data or single salaries (salary statistics only for groups of ≥ 3) | Leaking a person's pay or carrying injected text to the model |
+| `sql_guard`: sqlglot parse, one SELECT, only the views (subqueries and WITH included), allow-listed functions, no variables, no locks | 36 tested bypasses: comma joins, CTE shadowing (`WITH users AS (SELECT * FROM users)`), `information_schema`, `SLEEP`, `LOAD_FILE`, `@@version`, `INTO OUTFILE`, a second statement… |
+| The query that runs is **rebuilt from the checked tree**, without comments | MySQL executes `/*! … */` comments; a parser ignores them |
+| Read-only session, 2 s `max_execution_time`, row limit set inside the query | Writes, slow queries, huge results (and keeps `ORDER BY … LIMIT 3` correct) |
+| One retry with the checker's reason; every query and refusal audited | Cost; untraceable queries |
+
+The tool exists only for HR admins and only when `HRM_ANALYTICS_DATABASE_URL` is set — there is
+no fallback to the main account. Docker creates the account and grants
+(`docker/mysql-init`, then `hrm db grant-analytics` in the set-up job, the only container with
+admin credentials). Without Docker:
+
+```sql
+CREATE USER 'hrm_analytics'@'%' IDENTIFIED BY '…';   -- as an admin
+```
+```bash
+HRM_DATABASE_ADMIN_URL=mysql+pymysql://root:…@127.0.0.1:3306/hrm hrm db grant-analytics
+```
 
 ## Agent evaluation
 
@@ -280,6 +307,8 @@ A test fails if an endpoint is added without an access rule.
   outages return a clear 502.
 - **Retrieval**: one paraphrase is still missed; list-heavy sections rank lower than they
   should (see "Retrieval design").
+- **Analytics: answers are as good as the generated SQL.** The query is shown so HR can
+  check it; it is not yet part of the agent evaluation (planned with the larger dataset).
 - **Docker image is 1.25 GB** (onnxruntime, ChromaDB, Streamlit, two baked-in models).
 
 ## Development
@@ -299,6 +328,7 @@ A test checks that the migrations produce exactly the models' schema.
 ```
 src/hrm/agents/       LangGraph agent: tools, graph, guardrails, prompts, runner, memory,
                       router + specialists, factory
+src/hrm/analytics/    views schema, SQL guard (sqlglot), read-only runner, text-to-SQL service
 src/hrm/auth/         passwords (scrypt), JWT, user context, permission layer (HRAccess)
 src/hrm/workflows/    leave and expense rules (pure) and services
 src/hrm/db/           SQLAlchemy models, repository, seed, Alembic migrations

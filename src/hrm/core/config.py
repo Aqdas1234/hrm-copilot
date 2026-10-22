@@ -75,6 +75,8 @@ class Settings(BaseSettings):
     # --- HR database (Part B) ---
     # SQLAlchemy URL; a secret because it contains the password. Tests use SQLite in memory.
     database_url: SecretStr = SecretStr("mysql+pymysql://hrm:hrm@127.0.0.1:3306/hrm")
+    # Password of the scripted demo users created by `hrm db seed` (demo data only).
+    demo_password: SecretStr = SecretStr("hrm-demo-123")
 
     # --- UI ---
     api_url: str = "http://127.0.0.1:8000"  # where the Streamlit page finds the API

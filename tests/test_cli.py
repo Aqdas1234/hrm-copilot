@@ -212,3 +212,19 @@ def test_db_init_reports_an_unreachable_server(monkeypatch: pytest.MonkeyPatch) 
     assert result.exit_code == 1
     assert "could not set up the database" in result.output
     assert "secret" not in result.output  # the password never appears in error output
+
+
+def test_db_seed_then_refuse_then_reset(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("HRM_DATABASE_URL", f"sqlite:///{tmp_path / 'hr.db'}")
+    get_settings.cache_clear()
+
+    first = runner.invoke(app, ["db", "seed"])
+    again = runner.invoke(app, ["db", "seed"])
+    reset = runner.invoke(app, ["db", "seed", "--reset"])
+    get_settings.cache_clear()
+
+    assert first.exit_code == 0, first.output
+    assert "Seeded 30 employees" in first.stdout
+    assert "alice.park@example.com" in first.stdout
+    assert again.exit_code == 1 and "--reset" in again.output
+    assert reset.exit_code == 0, reset.output

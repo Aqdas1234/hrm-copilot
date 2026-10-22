@@ -3,18 +3,22 @@
 import subprocess
 import sys
 import time
+from datetime import date
 from pathlib import Path
 from typing import get_args
 
 import typer
 import uvicorn
+from sqlalchemy.orm import sessionmaker
 
 from hrm import __version__
 from hrm.core.config import get_settings
 from hrm.core.errors import HRMError
 from hrm.core.llm import get_answer_model, get_fast_model
 from hrm.core.logging import configure_logging, get_logger
-from hrm.db.session import create_schema, make_engine
+from hrm.db.models import Base
+from hrm.db.seed import DatabaseNotEmptyError, seed
+from hrm.db.session import create_schema, make_engine, session_scope
 from hrm.rag.chunking import chunk_document, tiktoken_counter
 from hrm.rag.cleaning import clean_document
 from hrm.rag.embeddings import FastEmbedEmbedder
@@ -219,3 +223,35 @@ def db_init() -> None:
         typer.echo(f"Error: could not set up the database: {type(exc).__name__}: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(f"Database ready: {engine.url.render_as_string(hide_password=True)}")
+
+
+@db_app.command("seed")
+def db_seed(
+    reset: bool = typer.Option(False, "--reset", help="Drop ALL tables and data first."),
+) -> None:
+    """Fill the HR database with deterministic demo data."""
+    settings = get_settings()
+    engine = make_engine(settings.database_url.get_secret_value())
+    try:
+        if reset:
+            Base.metadata.drop_all(engine)
+        create_schema(engine)
+        with session_scope(sessionmaker(engine)) as session:
+            summary = seed(
+                session,
+                today=date.today(),
+                demo_password=settings.demo_password.get_secret_value(),
+            )
+    except DatabaseNotEmptyError as exc:
+        typer.echo(f"Error: {exc} (use --reset)", err=True)
+        raise typer.Exit(code=1) from exc
+    except Exception as exc:  # unreachable server, wrong credentials, ...
+        typer.echo(f"Error: could not seed the database: {type(exc).__name__}: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(
+        f"Seeded {summary.employees} employees, {summary.leave_requests} leave requests, "
+        f"{summary.expense_claims} expense claims, {summary.holidays} public holidays."
+    )
+    typer.echo("Demo logins (password: HRM_DEMO_PASSWORD):")
+    for email in summary.demo_users:
+        typer.echo(f"  {email}")

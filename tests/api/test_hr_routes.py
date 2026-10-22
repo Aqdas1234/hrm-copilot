@@ -1,7 +1,6 @@
 """Login, tokens and role-protected HR endpoints, against a seeded in-memory database."""
 
-from collections.abc import Iterator
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import jwt
 import pytest
@@ -13,48 +12,8 @@ from hrm.api.app import create_app
 from hrm.api.hr_routes import AuthConfig
 from hrm.auth.tokens import create_token
 from hrm.db.models import AuditLog, User
-from hrm.db.seed import seed
-from hrm.db.session import create_schema, make_engine
+from tests.api.helpers import PASSWORD, SECRET, employee_id, login
 from tests.api.test_app import FakeService
-
-PASSWORD = "demo-pass"
-SECRET = "test-secret-at-least-32-bytes-long!!"
-
-
-@pytest.fixture
-def factory() -> Iterator[sessionmaker[Session]]:
-    engine = make_engine("sqlite://")
-    create_schema(engine)
-    factory = sessionmaker(engine)
-    with factory() as s:
-        seed(s, today=date.today(), demo_password=PASSWORD)
-        s.commit()
-    yield factory
-    engine.dispose()
-
-
-@pytest.fixture
-def client(factory: sessionmaker[Session]) -> Iterator[TestClient]:
-    app = create_app(
-        FakeService(), session_factory=factory, auth=AuthConfig(SECRET, ttl_minutes=60)
-    )
-    with TestClient(app) as c:
-        yield c
-
-
-def login(client: TestClient, name: str, password: str = PASSWORD) -> dict[str, str]:
-    response = client.post(
-        "/auth/login", json={"email": f"{name}@example.com", "password": password}
-    )
-    assert response.status_code == 200, response.text
-    return {"Authorization": f"Bearer {response.json()['access_token']}"}
-
-
-def employee_id(factory: sessionmaker[Session], name: str) -> int:
-    with factory() as s:
-        user = s.scalar(select(User).where(User.email == f"{name}@example.com"))
-        assert user is not None
-        return user.employee_id
 
 
 def actions(factory: sessionmaker[Session]) -> list[str]:

@@ -17,6 +17,7 @@ from typing import Protocol
 
 import structlog
 from fastapi import FastAPI, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -127,6 +128,13 @@ def create_app(
     async def config_error(request: Request, exc: ConfigurationError) -> JSONResponse:
         log.error("api.config_error", error=str(exc))
         return JSONResponse(status_code=503, content={"detail": "The service is not configured."})
+
+    @app.exception_handler(RequestValidationError)
+    async def invalid_request(request: Request, exc: RequestValidationError) -> JSONResponse:
+        # FastAPI's default 422 echoes the submitted values (e.g. a rejected password).
+        # Keep where and why the request was invalid, never what was sent.
+        errors = [{"loc": e["loc"], "msg": e["msg"], "type": e["type"]} for e in exc.errors()]
+        return JSONResponse(status_code=422, content={"detail": errors})
 
     @app.exception_handler(InvalidTokenError)
     @app.exception_handler(InvalidCredentialsError)

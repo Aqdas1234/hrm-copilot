@@ -114,7 +114,8 @@ def plan_leave(draft: LeaveRequestDraft, ctx: LeaveContext) -> LeavePlan:
         violations.append(
             Violation(
                 "over_allowance",
-                f"Only {left} days of {draft.leave_code} leave remain; this request needs {count}.",
+                f"Only {_days(left)} days of {draft.leave_code} leave remain; "
+                f"this request needs {_days(count)}.",
             )
         )
 
@@ -138,3 +139,8 @@ def plan_leave(draft: LeaveRequestDraft, ctx: LeaveContext) -> LeavePlan:
         warnings.append("No manager on file: the People Team will route this request.")
 
     return LeavePlan(tuple(days), count, ctx.manager_id, warnings)
+
+
+def _days(value: Decimal) -> str:
+    """2.0 -> "2", 2.5 -> "2.5": how people write day counts."""
+    return f"{value.normalize():f}"

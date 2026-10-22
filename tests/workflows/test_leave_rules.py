@@ -191,3 +191,14 @@ def test_all_violations_are_reported_at_once() -> None:
     draft = pto(date(2026, 10, 10), date(2026, 10, 11))  # in the past AND a weekend
 
     assert sorted(violation_codes(draft, ctx())) == ["in_the_past", "no_working_days"]
+
+
+def test_day_counts_in_messages_are_written_naturally() -> None:
+    draft = LeaveRequestDraft("parental", date(2026, 11, 2), date(2026, 11, 6))
+
+    with pytest.raises(LeaveRuleError) as caught:
+        plan_leave(draft, ctx(allowed_days=Decimal("80.0"), used_days=Decimal("77.5")))
+
+    assert caught.value.violations[0].message == (
+        "Only 2.5 days of parental leave remain; this request needs 5."
+    )

@@ -91,6 +91,22 @@ def leave_requests_for(
     return list(session.scalars(query.order_by(LeaveRequest.start_date.desc())))
 
 
+def get_leave_request(session: Session, request_id: int) -> LeaveRequest | None:
+    return session.get(LeaveRequest, request_id)
+
+
+def active_leave_for(session: Session, employee_id: int) -> list[LeaveRequest]:
+    """Pending and approved requests: the ones a new request must not overlap."""
+    return list(
+        session.scalars(
+            select(LeaveRequest).where(
+                LeaveRequest.employee_id == employee_id,
+                LeaveRequest.status.in_([RequestStatus.PENDING, RequestStatus.APPROVED]),
+            )
+        )
+    )
+
+
 def pending_leave_for_approver(session: Session, approver_id: int) -> list[LeaveRequest]:
     return list(
         session.scalars(

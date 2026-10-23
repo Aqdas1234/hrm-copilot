@@ -10,7 +10,7 @@ import httpx
 from pydantic import BaseModel
 
 from hrm.agents.runner import AgentReply
-from hrm.api.chat_routes import Conversation
+from hrm.api.chat_routes import Conversation, ConversationSummary
 from hrm.api.schemas import AskResponse
 from hrm.auth.access import EmployeeView, LeaveRequestView
 from hrm.db.models import Role
@@ -93,6 +93,12 @@ class ApiClient:
     def conversation(self, conversation_id: str) -> Conversation:
         return Conversation.model_validate(self._call("GET", f"/chat/{conversation_id}"))
 
+    def conversations(self) -> list[ConversationSummary]:
+        return [ConversationSummary.model_validate(c) for c in self._call("GET", "/chat")]
+
+    def delete_conversation(self, conversation_id: str) -> None:
+        self._call("DELETE", f"/chat/{conversation_id}")
+
     # --- helpers --------------------------------------------------------------------------
 
     def _call(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
@@ -107,7 +113,7 @@ class ApiClient:
             raise ApiError(
                 _detail(response), response.headers.get(REQUEST_ID_HEADER), response.status_code
             )
-        return response.json()
+        return response.json() if response.content else None
 
 
 def _detail(response: httpx.Response) -> str:

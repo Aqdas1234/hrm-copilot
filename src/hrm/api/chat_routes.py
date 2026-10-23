@@ -1,8 +1,10 @@
 """Chat with the HR agent: send a message, confirm a pending action, read a conversation.
 
-    POST /chat/{conversation_id}/messages   {"message": "..."}  -> answer or "confirm"
-    POST /chat/{conversation_id}/confirm    {"approved": true}  -> answer
-    GET  /chat/{conversation_id}                                -> messages + pending action
+    GET    /chat                                                -> your conversations, newest first
+    POST   /chat/{conversation_id}/messages   {"message": "..."}  -> answer or "confirm"
+    POST   /chat/{conversation_id}/confirm    {"approved": true}  -> answer
+    GET    /chat/{conversation_id}                              -> messages + pending action
+    DELETE /chat/{conversation_id}                              -> gone for good
 
 The client picks the conversation id; the server combines it with the logged-in user
 (agents/memory.py), so nobody can open someone else's conversation.
@@ -17,7 +19,7 @@ from fastapi import APIRouter, Depends, Path, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from hrm.agents.memory import CONVERSATION_ID_PATTERN, thread_id
+from hrm.agents.memory import CONVERSATION_ID_PATTERN, ConversationStore, thread_id
 from hrm.agents.runner import AgentReply, AgentRunner, ChatMessage
 from hrm.api.hr_routes import SessionDep, current_user
 from hrm.api.rate_limit import RateLimiter
@@ -28,6 +30,8 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 # A hard cap on the request body; the input guardrail gives the friendly limit (2,000).
 MAX_MESSAGE_CHARS = 8_000
+TITLE_CHARS = 60
+UNTITLED = "New conversation"
 
 
 class RunnerFactory(Protocol):
@@ -52,6 +56,11 @@ class Conversation(BaseModel):
     pending: AgentReply | None
 
 
+class ConversationSummary(BaseModel):
+    conversation_id: str
+    title: str  # the user's first message, shortened
+
+
 UserDep = Annotated[UserContext, Depends(current_user)]
 ConversationId = Annotated[
     str, Path(pattern=CONVERSATION_ID_PATTERN, description="Chosen by the client.")
@@ -70,7 +79,25 @@ def rate_limit(request: Request, user: UserDep) -> None:
     limiter.check(user.user_id)
 
 
+def conversation_store(request: Request) -> ConversationStore:
+    store: ConversationStore | None = request.app.state.conversations
+    if store is None:
+        raise ConfigurationError("The conversation store is not configured.")
+    return store
+
+
 RunnerDep = Annotated[AgentRunner, Depends(agent_runner)]
+StoreDep = Annotated[ConversationStore, Depends(conversation_store)]
+
+
+@router.get("", response_model=list[ConversationSummary])
+def list_conversations(
+    user: UserDep, runner: RunnerDep, store: StoreDep
+) -> list[ConversationSummary]:
+    return [
+        ConversationSummary(conversation_id=cid, title=_title(runner.history(thread_id(user, cid))))
+        for cid in store.conversation_ids(user)
+    ]
 
 
 @router.post(
@@ -101,3 +128,16 @@ def get_conversation(
         messages=runner.history(thread),
         pending=runner.pending(thread),
     )
+
+
+@router.delete("/{conversation_id}", status_code=204)
+def delete_conversation(conversation_id: ConversationId, user: UserDep, store: StoreDep) -> None:
+    store.delete(user, conversation_id)
+
+
+def _title(messages: list[ChatMessage]) -> str:
+    first = next((m.text for m in messages if m.role == "user"), "")
+    text = " ".join(first.split())
+    if not text:
+        return UNTITLED
+    return text if len(text) <= TITLE_CHARS else text[: TITLE_CHARS - 1].rstrip() + "…"

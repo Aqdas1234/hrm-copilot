@@ -44,6 +44,8 @@ ACCESS_RULES = {
     ("POST", "/chat/{conversation_id}/messages"): OWN_CONVERSATION,
     ("POST", "/chat/{conversation_id}/confirm"): OWN_CONVERSATION,
     ("GET", "/chat/{conversation_id}"): OWN_CONVERSATION,
+    ("GET", "/chat"): OWN_CONVERSATION,
+    ("DELETE", "/chat/{conversation_id}"): OWN_CONVERSATION,
 }
 
 ACTORS = ["anonymous", "alice", "bob", "carol"]

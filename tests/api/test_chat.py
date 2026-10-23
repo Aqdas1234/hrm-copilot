@@ -1,5 +1,6 @@
 """Chat endpoints: the real agent stack on the seeded database, with a scripted model."""
 
+import sqlite3
 from collections.abc import Iterator
 from datetime import date, timedelta
 
@@ -8,11 +9,12 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
-from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from hrm.agents.factory import AgentFactory
+from hrm.agents.memory import ConversationStore
 from hrm.api.app import create_app
 from hrm.api.hr_routes import AuthConfig
 from hrm.api.rate_limit import RateLimiter
@@ -33,19 +35,21 @@ def llm() -> ScriptedChatModel:
 def chat_app(
     factory: sessionmaker[Session], llm: ScriptedChatModel, per_minute: int = 100
 ) -> TestClient:
+    saver = SqliteSaver(sqlite3.connect(":memory:", check_same_thread=False))
     agents = AgentFactory(
         settings=Settings(_env_file=None),
         llm=llm,
         policies=FakePolicies(),
         http=StubHTTP(),
         payroll=PayrollClient(StubHTTP(), base_url="http://payroll.test"),
-        checkpointer=InMemorySaver(),
+        checkpointer=saver,
     )
     app = create_app(
         FakeService(),
         session_factory=factory,
         auth=AuthConfig(SECRET, ttl_minutes=60),
         agents=agents,
+        conversations=ConversationStore(saver),
         chat_limiter=RateLimiter(per_minute),
     )
     return TestClient(app)
@@ -79,6 +83,8 @@ def free_dates() -> dict[str, str]:
         ("POST", "/chat/1/messages", {"message": "hi"}),
         ("POST", "/chat/1/confirm", {"approved": True}),
         ("GET", "/chat/1", None),
+        ("GET", "/chat", None),
+        ("DELETE", "/chat/1", None),
     ],
 )
 def test_chat_needs_a_login(chat: TestClient, method: str, path: str, body: object) -> None:
@@ -99,6 +105,46 @@ def test_a_message_gets_an_answer_and_is_kept(chat: TestClient, llm: ScriptedCha
         {"role": "assistant", "text": "Hello Alice!"},
     ]
     assert history["pending"] is None
+
+
+def test_conversations_are_listed_newest_first_with_their_first_message_as_title(
+    chat: TestClient, llm: ScriptedChatModel
+) -> None:
+    alice = login(chat, "alice.park")
+    llm.script += [AIMessage(content="a"), AIMessage(content="b"), AIMessage(content="c")]
+    chat.post("/chat/older/messages", json={"message": "How much PTO do I have?"}, headers=alice)
+    chat.post("/chat/newer/messages", json={"message": "x " * 50}, headers=alice)
+    chat.post("/chat/older/messages", json={"message": "And next year?"}, headers=alice)
+
+    listed = chat.get("/chat", headers=alice).json()
+
+    assert [c["conversation_id"] for c in listed] == ["older", "newer"]  # latest activity
+    assert listed[0]["title"] == "How much PTO do I have?"
+    assert len(listed[1]["title"]) == 60 and listed[1]["title"].endswith("…")
+
+
+def test_users_only_see_and_delete_their_own_conversations(
+    chat: TestClient, llm: ScriptedChatModel
+) -> None:
+    alice, bob = login(chat, "alice.park"), login(chat, "bob.chen")
+    llm.script.append(AIMessage(content="Hello"))
+    chat.post("/chat/shared-name/messages", json={"message": "hi"}, headers=alice)
+
+    assert chat.get("/chat", headers=bob).json() == []
+    assert chat.delete("/chat/shared-name", headers=bob).status_code == 204  # bob's own, empty
+    assert [c["conversation_id"] for c in chat.get("/chat", headers=alice).json()] == [
+        "shared-name"
+    ]
+
+
+def test_a_deleted_conversation_is_gone(chat: TestClient, llm: ScriptedChatModel) -> None:
+    alice = login(chat, "alice.park")
+    llm.script.append(AIMessage(content="Hello"))
+    chat.post("/chat/c1/messages", json={"message": "hi"}, headers=alice)
+
+    assert chat.delete("/chat/c1", headers=alice).status_code == 204
+    assert chat.get("/chat", headers=alice).json() == []
+    assert chat.get("/chat/c1", headers=alice).json()["messages"] == []
 
 
 def test_an_action_waits_for_confirmation_then_runs(

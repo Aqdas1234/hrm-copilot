@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from hrm import __version__
 from hrm.agents.factory import AgentFactory
 from hrm.agents.guardrails import check_input, check_output
-from hrm.agents.memory import open_memory
+from hrm.agents.memory import ConversationStore, open_memory
 from hrm.agents.runner import NothingToConfirmError
 from hrm.api import chat_routes, hr_routes
 from hrm.api.chat_routes import RunnerFactory
@@ -76,6 +76,7 @@ def create_app(
     session_factory: sessionmaker[Session] | None = None,
     auth: AuthConfig | None = None,
     agents: RunnerFactory | None = None,
+    conversations: ConversationStore | None = None,
     chat_limiter: RateLimiter | None = None,
 ) -> FastAPI:
     """Without arguments, everything is built from settings at startup; tests pass fakes.
@@ -98,11 +99,13 @@ def create_app(
         app.state.chat_limiter = chat_limiter or RateLimiter(settings.chat_messages_per_minute)
         with ExitStack() as stack:
             app.state.agents = agents
+            app.state.conversations = conversations
             if agents is None and service is None:
                 memory = stack.enter_context(open_memory(settings.memory_db_path))
                 app.state.agents = AgentFactory.from_settings(
                     settings, memory, policies=app.state.service
                 )
+                app.state.conversations = ConversationStore(memory)
             yield
 
     app = FastAPI(

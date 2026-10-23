@@ -19,6 +19,7 @@ from typing import get_args
 import streamlit as st
 
 from hrm.agents.runner import AgentReply
+from hrm.api.chat_routes import UNTITLED
 from hrm.core.config import get_settings
 from hrm.db.models import Role
 from hrm.rag.models import Category
@@ -64,20 +65,40 @@ def sidebar() -> str:
         if "token" in st.session_state:
             me = st.session_state.me
             st.markdown(f"**{me.name}**  \n{me.job_title}")
-            conversations: list[str] = st.session_state.setdefault("conversations", [_new_id()])
-            current = st.session_state.get("conversation", conversations[0])
-            if current not in conversations:
-                current = conversations[0]
-            selected = st.selectbox(
-                "Conversation",
-                conversations,
-                index=conversations.index(current),
-                format_func=lambda c: f"Conversation {conversations.index(c) + 1}",
-            )
-            st.session_state.conversation = selected
-            st.button("New conversation", on_click=new_conversation)
+            conversation_picker()
             st.button("Log out", on_click=logout)
     return str(page)
+
+
+def conversation_picker() -> None:
+    """Saved conversations come from the API on every run, so the list is the same after
+    logging out and in, after a restart, and on another device. A new conversation is a
+    local draft until its first message saves it."""
+    try:
+        titles = {c.conversation_id: c.title for c in api().conversations()}
+    except ApiError as exc:
+        show_error(exc)
+        return
+    draft = st.session_state.get("draft")
+    if draft in titles:
+        del st.session_state["draft"]
+        draft = None
+    if draft is None and not titles:
+        draft = st.session_state.draft = _new_id()
+    options = ([draft] if draft else []) + list(titles)
+    current = st.session_state.get("conversation")
+    if current not in options:
+        current = options[0]
+    st.session_state.conversation = st.selectbox(
+        "Conversation",
+        options,
+        index=options.index(current),
+        format_func=lambda c: titles.get(c, UNTITLED),
+    )
+    st.button("New conversation", on_click=new_conversation)
+    with st.popover("Delete conversation"):
+        st.caption("Deletes this conversation for good.")
+        st.button("Delete", type="primary", on_click=delete_conversation)
 
 
 def login_page() -> None:
@@ -96,8 +117,6 @@ def login_page() -> None:
             return
         st.session_state.token = login.token
         st.session_state.role = login.role
-        st.session_state.conversations = ["default"]
-        st.session_state.conversation = "default"
         st.rerun()
 
 
@@ -105,7 +124,9 @@ def login_page() -> None:
 
 
 def assistant_page() -> None:
-    conversation_id = st.session_state.conversation
+    conversation_id = st.session_state.get("conversation")
+    if conversation_id is None:  # the conversation list could not be loaded
+        return
     try:
         conversation = api().conversation(conversation_id)
     except ApiError as exc:
@@ -203,8 +224,18 @@ def ask_assistant(message: str) -> None:
 
 
 def new_conversation() -> None:
-    st.session_state.conversations.append(_new_id())
-    st.session_state.conversation = st.session_state.conversations[-1]
+    st.session_state.draft = st.session_state.conversation = _new_id()
+
+
+def delete_conversation() -> None:
+    current = st.session_state.pop("conversation", None)
+    if current == st.session_state.get("draft"):
+        del st.session_state["draft"]
+    elif current:
+        try:
+            api().delete_conversation(current)
+        except ApiError as exc:
+            show_error(exc)
 
 
 # --- tickets -------------------------------------------------------------------------------
@@ -318,7 +349,8 @@ def show_error(exc: ApiError) -> None:
 
 
 def logout() -> None:
-    for key in ("token", "role", "me", "conversations", "conversation", "queued"):
+    # Only this browser's session state: the conversations themselves stay on the server.
+    for key in ("token", "role", "me", "conversation", "draft", "queued"):
         st.session_state.pop(key, None)
 
 

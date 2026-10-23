@@ -27,7 +27,34 @@ class InvalidConversationError(HRMError):
 def thread_id(user: UserContext, conversation_id: str) -> str:
     if not _CONVERSATION_ID.fullmatch(conversation_id):
         raise InvalidConversationError("Conversation ids are 1-64 letters, digits, '-' or '_'.")
-    return f"user-{user.user_id}:{conversation_id}"
+    return f"{thread_id_prefix(user)}{conversation_id}"
+
+
+class ConversationStore:
+    """Which conversations a user has, newest first, and deleting one. Conversations stay
+    in the checkpointer until the user deletes them; logging out does not touch them."""
+
+    def __init__(self, saver: SqliteSaver) -> None:
+        self._saver = saver
+
+    def conversation_ids(self, user: UserContext) -> list[str]:
+        prefix = thread_id_prefix(user)
+        # Checkpoint ids are time-ordered (uuid6), so the largest one is the latest activity.
+        with self._saver.cursor(transaction=False) as cur:
+            rows = cur.execute(
+                "SELECT thread_id FROM checkpoints"
+                " WHERE checkpoint_ns = '' AND substr(thread_id, 1, ?) = ?"
+                " GROUP BY thread_id ORDER BY MAX(checkpoint_id) DESC",
+                (len(prefix), prefix),
+            ).fetchall()
+        return [row[0][len(prefix) :] for row in rows]
+
+    def delete(self, user: UserContext, conversation_id: str) -> None:
+        self._saver.delete_thread(thread_id(user, conversation_id))
+
+
+def thread_id_prefix(user: UserContext) -> str:
+    return f"user-{user.user_id}:"
 
 
 @contextmanager

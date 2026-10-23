@@ -5,17 +5,24 @@ from typing import Any
 
 import pytest
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMessage
-from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.checkpoint.base import BaseCheckpointSaver, empty_checkpoint
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from hrm.agents.factory import AgentFactory
 from hrm.agents.graph import recent_history
-from hrm.agents.memory import InvalidConversationError, open_memory, thread_id
+from hrm.agents.memory import (
+    ConversationStore,
+    InvalidConversationError,
+    open_memory,
+    thread_id,
+)
 from hrm.agents.runner import AgentRunner
+from hrm.auth.context import UserContext
 from hrm.core.config import Settings
-from hrm.db.models import LeaveRequest
+from hrm.db.models import LeaveRequest, Role
 from hrm.integrations.payroll import PayrollClient
 from tests.agents.helpers import TODAY, FakePolicies, user_ctx
 from tests.fakes import ScriptedChatModel, StubHTTP, tool_call, wants_tools
@@ -101,6 +108,45 @@ def test_a_waiting_confirmation_survives_a_restart(db: Session, tmp_path: Path) 
 
     assert reply.text == "Filed."
     assert db.scalar(select(func.count()).select_from(LeaveRequest)) == (before or 0) + 1
+
+
+def _person(user_id: int) -> UserContext:
+    return UserContext(
+        user_id=user_id, employee_id=user_id, email="x@example.com", role=Role.EMPLOYEE
+    )
+
+
+def _save(saver: SqliteSaver, thread: str) -> None:
+    saver.put(
+        {"configurable": {"thread_id": thread, "checkpoint_ns": ""}},
+        empty_checkpoint(),
+        {},
+        {},
+    )
+
+
+def test_conversations_are_listed_per_user_newest_first_and_survive_a_restart(
+    tmp_path: Path,
+) -> None:
+    path, one, ten = tmp_path / "memory.sqlite", _person(1), _person(10)
+    with open_memory(path) as saver:
+        for thread in (thread_id(one, "a"), thread_id(ten, "x"), thread_id(one, "b")):
+            _save(saver, thread)
+
+    with open_memory(path) as saver:  # a new process: only the file is shared
+        store = ConversationStore(saver)
+        assert store.conversation_ids(one) == ["b", "a"]  # not user 10's "x"
+        assert store.conversation_ids(ten) == ["x"]
+
+
+def test_deleting_a_conversation_removes_only_that_one(tmp_path: Path) -> None:
+    one = _person(1)
+    with open_memory(tmp_path / "memory.sqlite") as saver:
+        _save(saver, thread_id(one, "a"))
+        _save(saver, thread_id(one, "b"))
+        store = ConversationStore(saver)
+        store.delete(one, "a")
+        assert store.conversation_ids(one) == ["b"]
 
 
 def test_the_factory_builds_the_prompt_from_the_employee_record(db: Session) -> None:

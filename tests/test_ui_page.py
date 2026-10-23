@@ -8,7 +8,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from hrm.agents.runner import AgentReply, ChatMessage, PendingAction
-from hrm.api.chat_routes import Conversation
+from hrm.api.chat_routes import Conversation, ConversationSummary
 from hrm.api.schemas import AskResponse
 from hrm.auth.access import EmployeeView, LeaveRequestView
 from hrm.db.models import RequestStatus, Role, TicketCategory, TicketStatus
@@ -64,6 +64,8 @@ class FakeBackend:
         self.confirmed: list[bool] = []
         self.error: ApiError | None = None
         self.ask_reply: AskResponse | ApiError = AskResponse.model_validate(ASK_OK)
+        self.saved: list[ConversationSummary] = []
+        self.deleted: list[str] = []
 
     def install(self, monkeypatch: pytest.MonkeyPatch) -> None:
         backend = self
@@ -77,7 +79,8 @@ class FakeBackend:
             return call
 
         names = ("login", "me", "team", "approvals", "send", "confirm", "conversation", "ask")
-        for name in (*names, "my_tickets", "ticket_queue", "all_employees"):
+        extra = ("my_tickets", "ticket_queue", "all_employees", "conversations")
+        for name in (*names, *extra, "delete_conversation"):
             monkeypatch.setattr(ApiClient, name, method(name))
 
     def do_login(self, email: str, password: str) -> Login:
@@ -126,6 +129,13 @@ class FakeBackend:
         self.confirmed.append(approved)
         self.pending = None
         return AgentReply(kind="answer", text="ok")
+
+    def do_conversations(self) -> list[ConversationSummary]:
+        return self.saved
+
+    def do_delete_conversation(self, conversation_id: str) -> None:
+        self.deleted.append(conversation_id)
+        self.saved = [c for c in self.saved if c.conversation_id != conversation_id]
 
     def do_conversation(self, conversation_id: str) -> Conversation:
         return Conversation(
@@ -226,13 +236,40 @@ def test_a_pending_action_can_be_declined(backend: FakeBackend) -> None:
     assert backend.confirmed == [False]
 
 
+SAVED = [
+    ConversationSummary(conversation_id="c2", title="Payslip question"),
+    ConversationSummary(conversation_id="c1", title="PTO in November"),
+]
+
+
 def test_a_new_conversation_can_be_started(backend: FakeBackend) -> None:
+    backend.saved = list(SAVED)
     app = logged_in()
-    first = app.session_state["conversation"]
     next(b for b in app.sidebar.button if b.label == "New conversation").click().run()
 
-    assert app.session_state["conversation"] != first
-    assert len(app.session_state["conversations"]) == 2
+    assert app.session_state["conversation"] not in {"c1", "c2"}
+    assert app.sidebar.selectbox[0].options == ["New conversation", *[c.title for c in SAVED]]
+
+
+def test_saved_conversations_come_back_after_logging_in_again(backend: FakeBackend) -> None:
+    backend.saved = list(SAVED)
+    app = logged_in()
+    next(b for b in app.sidebar.button if b.label == "Log out").click().run()
+    app.text_input[0].input("bob.chen@example.com")
+    app.text_input[1].input("right")
+    app.button[0].click().run()
+
+    assert app.sidebar.selectbox[0].options == [c.title for c in SAVED]
+    assert app.session_state["conversation"] == "c2"  # the most recent one
+
+
+def test_a_conversation_can_be_deleted(backend: FakeBackend) -> None:
+    backend.saved = list(SAVED)
+    app = logged_in()
+    next(b for b in app.sidebar.button if b.label == "Delete").click().run()
+
+    assert backend.deleted == ["c2"]
+    assert app.sidebar.selectbox[0].options == ["PTO in November"]
 
 
 # --- approvals -----------------------------------------------------------------------------

@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from hrm import __version__
 from hrm.agents.factory import AgentFactory
+from hrm.agents.guardrails import check_input, check_output
 from hrm.agents.memory import open_memory
 from hrm.agents.runner import NothingToConfirmError
 from hrm.api import chat_routes, hr_routes
@@ -223,10 +224,19 @@ def create_app(
     @app.post("/rag/ask", response_model=AskResponse)
     def ask(body: AskRequest, request: Request) -> AskResponse:
         service: PolicyService = request.app.state.service
-        result = service.answer(body.question, category=body.category)
+        input_check = check_input(body.question)
+        if not input_check.ok:
+            log.warning("rag.input_blocked", reason=input_check.blocked)
+            return JSONResponse(  # type: ignore[return-value]
+                status_code=400, content={"detail": input_check.refusal}
+            )
+        result = service.answer(input_check.text, category=body.category)
+        output_check = check_output(result.answer.answer)
+        if output_check.changed:
+            log.warning("rag.output_redacted", findings=output_check.findings)
         texts = {r.chunk.chunk_id: r.chunk.text for r in result.context}
         return AskResponse(
-            answer=result.answer.answer,
+            answer=output_check.text,
             found=result.answer.found,
             citations=[
                 CitationOut(

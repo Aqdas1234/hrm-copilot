@@ -25,7 +25,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from hrm.analytics.service import AnalyticsService
-from hrm.auth.access import HRAccess
+from hrm.auth.access import EmployeeView, HRAccess
 from hrm.auth.context import UserContext
 from hrm.core.errors import HRMError
 from hrm.db import repository as repo
@@ -363,8 +363,31 @@ ANALYTICS_ROWS_FOR_MODEL = 50
 
 
 def _hr_admin_tools(deps: ToolDeps) -> list[BaseTool]:
+    access = HRAccess(deps.session, deps.user)
     tickets = TicketService(deps.session, deps.user)
     committed = _commit_after(deps.session)
+
+    @tool(parse_docstring=True)
+    @_safe
+    def list_employees() -> str:
+        """Every active employee: name, email, job title, department, country, manager and
+        start date. No salaries."""
+        return _json(access.all_employees())
+
+    @tool(parse_docstring=True)
+    @_safe
+    def get_employee_salary(employee: str, reason: str) -> str:
+        """Another employee's current base salary (yearly, in their local currency). Every
+        read is audited with the reason. If the user has not said why they need it, ask them
+        first; never make up a reason.
+
+        Args:
+            employee: The person's full name or email, e.g. "Bob Chen".
+            reason: Why HR needs it, in the user's words, e.g. "annual pay review".
+        """
+        person = _find_employee(access.all_employees(), employee)
+        salary = access.salary(person.id, reason=_required_reason(reason), on=deps.today)
+        return _json({"employee": person.name, **salary.model_dump(mode="json")})
 
     @tool(parse_docstring=True)
     @_safe
@@ -392,7 +415,12 @@ def _hr_admin_tools(deps: ToolDeps) -> list[BaseTool]:
         return _json(tickets.update(ticket_id, TicketStatus(status), _text(resolution, 2000)))
 
     _mark_writes(update_hr_ticket)
-    tools: list[BaseTool] = [list_open_tickets, update_hr_ticket]
+    tools: list[BaseTool] = [
+        list_employees,
+        get_employee_salary,
+        list_open_tickets,
+        update_hr_ticket,
+    ]
     if deps.analytics is not None:
         tools.append(_analytics_tool(deps.analytics))
     return tools
@@ -510,6 +538,26 @@ def _text(value: str | None, limit: int) -> str | None:
     if len(value) > limit:
         raise ToolInputError(f"Please keep it under {limit} characters.")
     return value or None
+
+
+def _find_employee(employees: list[EmployeeView], query: str) -> EmployeeView:
+    """By email, full name, or a single matching first or last name ("bob")."""
+    wanted = " ".join(query.lower().split())
+    exact = [e for e in employees if wanted in (e.email.lower(), e.name.lower())]
+    found = exact or [e for e in employees if wanted in e.name.lower().split()]
+    if len(found) == 1:
+        return found[0]
+    if not found:
+        raise ToolInputError(f"No active employee matches '{query}'.")
+    names = ", ".join(f"{e.name} ({e.email})" for e in found)
+    raise ToolInputError(f"'{query}' matches several people: {names}. Which one?")
+
+
+def _required_reason(reason: str | None) -> str:
+    text = _text(reason, 200)
+    if not text or len(text) < 3:
+        raise ToolInputError("Salary reads need a short reason for the audit log.")
+    return text
 
 
 def _required_note(note: str | None) -> str:

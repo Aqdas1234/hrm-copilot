@@ -8,10 +8,11 @@ from typing import Any
 
 import pytest
 from langchain_core.tools import BaseTool
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from hrm.agents.tools import is_write
-from hrm.db.models import RequestStatus
+from hrm.db.models import AuditLog, RequestStatus
 from tests.agents.helpers import tools_for
 
 SELF_TOOLS = {
@@ -37,7 +38,12 @@ TEAM_TOOLS = {
     "decide_leave_request",
     "decide_expense_claim",
 }
-HR_ADMIN_TOOLS = {"list_open_tickets", "update_hr_ticket"}  # + analytics when configured
+HR_ADMIN_TOOLS = {  # + analytics when configured
+    "list_employees",
+    "get_employee_salary",
+    "list_open_tickets",
+    "update_hr_ticket",
+}
 WRITE_TOOLS = {
     "open_hr_ticket",
     "update_hr_ticket",
@@ -97,6 +103,41 @@ def test_profile_and_salary_are_always_the_logged_in_users(db: Session) -> None:
 
     assert call(alice, "get_my_profile")["name"] == "Alice Park"
     assert call(alice, "get_my_salary")["currency"] == "USD"
+
+
+def test_hr_admins_can_list_every_employee_without_salaries(db: Session) -> None:
+    employees = call(tools_for(db, "carol.reyes"), "list_employees")
+
+    assert {"Alice Park", "Bob Chen", "Carol Reyes"} <= {e["name"] for e in employees}
+    assert not any("salary" in key or "yearly" in key for e in employees for key in e)
+
+
+def test_hr_admins_read_a_salary_by_name_and_the_reason_is_audited(db: Session) -> None:
+    salary = call(
+        tools_for(db, "carol.reyes"), "get_employee_salary", employee="bob", reason="pay review"
+    )
+
+    entry = db.scalars(
+        select(AuditLog).where(AuditLog.action == "salary.read").order_by(AuditLog.id.desc())
+    ).first()
+    assert salary["employee"] == "Bob Chen" and salary["yearly_amount"] > 0
+    assert entry is not None and entry.details == {"reason": "pay review"}
+
+
+@pytest.mark.parametrize(
+    ("employee", "reason", "error"),
+    [
+        ("Bob Chen", "", "need a short reason"),
+        ("Nobody Here", "pay review", "No active employee matches"),
+    ],
+)
+def test_salary_reads_need_a_reason_and_one_clear_person(
+    db: Session, employee: str, reason: str, error: str
+) -> None:
+    out = call(
+        tools_for(db, "carol.reyes"), "get_employee_salary", employee=employee, reason=reason
+    )
+    assert out.startswith("ERROR:") and error in out
 
 
 def test_leave_balance_explains_flexible_pto(db: Session) -> None:

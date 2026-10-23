@@ -67,7 +67,8 @@ VIEWS: tuple[View, ...] = (
             "amount_usd_cents": "amount in US cents",
             "purchase_date": "date",
             "is_company_property": "boolean",
-            "status": "pending | approved | rejected | cancelled",
+            "status": "pending | pending_hr (manager approved, HR has not) | approved | rejected "
+            "| cancelled",
         },
     ),
     View(

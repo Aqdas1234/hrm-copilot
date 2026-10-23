@@ -5,6 +5,8 @@
 - "If you spend more than $1,000 on any given physical item, it will be considered
   property of the company": we cannot know if the purchase is a physical item, so claims
   over $1,000 are flagged for the approver rather than refused.
+- The policy brings in People Ops above its spending limits; here every claim over $1,000
+  needs HR's approval after the manager's.
 """
 
 from dataclasses import dataclass, field
@@ -14,6 +16,7 @@ from hrm.workflows.leave_rules import LeaveRuleError, Violation
 
 FILING_DEADLINE_DAYS = 60
 COMPANY_PROPERTY_USD_CENTS = 1_000 * 100
+HR_SIGN_OFF_USD_CENTS = 1_000 * 100
 
 ExpenseRuleError = LeaveRuleError  # same shape: a list of violations
 
@@ -58,6 +61,12 @@ def check_expense(
         warnings.append(
             "Over $1,000: if this is a physical item, it becomes company property (policy)."
         )
+    if needs_hr_sign_off(usd_cents):
+        warnings.append("Over $1,000: after your manager approves, HR gives the final approval.")
     if not has_manager:
         warnings.append("No manager on file: the People Team will route this claim.")
     return ExpensePlan(is_property, warnings)
+
+
+def needs_hr_sign_off(usd_cents: int) -> bool:
+    return usd_cents > HR_SIGN_OFF_USD_CENTS

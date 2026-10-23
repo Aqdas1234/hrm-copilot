@@ -183,7 +183,9 @@ def approvals_page() -> None:
     try:
         requests = api().approvals()
         claims = api().expense_approvals()
-        names = {e.id: e.name for e in api().team()}
+        hr_admin = st.session_state.get("role") == Role.HR_ADMIN
+        people = api().all_employees() if hr_admin else api().team()  # HR's queue: anyone
+        names = {e.id: e.name for e in people}
     except ApiError as exc:
         show_error(exc)
         return
@@ -206,8 +208,9 @@ def approvals_page() -> None:
             amount = f"{c.amount_cents / 100:,.2f} {c.currency}"
             if c.currency != "USD":
                 amount += f" (≈ {c.amount_usd_cents / 100:,.2f} USD)"
+            stage = " · manager approved, waiting for HR" if c.status == "pending_hr" else ""
             st.markdown(
-                f"**{_name(names, c.employee_id)}** · expense claim #{c.id}  \n"
+                f"**{_name(names, c.employee_id)}** · expense claim #{c.id}{stage}  \n"
                 f"{_md(amount)} · bought {c.purchase_date}"
             )
             st.text(c.description)  # plain text: written by an employee

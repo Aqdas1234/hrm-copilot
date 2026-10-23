@@ -200,7 +200,8 @@ def _self_service_tools(deps: ToolDeps) -> list[BaseTool]:
     @tool(parse_docstring=True)
     @_safe
     def list_my_expense_claims() -> str:
-        """Your expense claims, newest purchase first, with amounts in USD."""
+        """Your expense claims, newest purchase first, with amounts in USD. Status
+        "pending_hr" means your manager approved and HR still has to."""
         return _json(expenses.my_claims())
 
     @tool(parse_docstring=True)
@@ -343,7 +344,9 @@ def _team_tools(deps: ToolDeps) -> list[BaseTool]:
     def decide_expense_claim(
         claim_id: int, decision: Literal["approve", "reject"], note: str | None = None
     ) -> str:
-        """Approve or reject an expense claim waiting for you. Changes data.
+        """Approve or reject an expense claim waiting for you. Changes data. Claims over
+        $1,000 need two approvals: after the manager approves, the status becomes
+        "pending_hr" and an HR admin gives the final approval.
 
         Args:
             claim_id: The id from list_pending_approvals.

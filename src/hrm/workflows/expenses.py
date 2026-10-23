@@ -2,8 +2,12 @@
 
 Same permission rules as leave: the employee submits for themselves; only the assigned
 approver (the manager) or an HR admin decides; nobody decides on their own claim; only
-pending claims can be decided or cancelled. Amounts are converted to USD at the rate of
+open claims can be decided or cancelled. Amounts are converted to USD at the rate of
 the purchase date and stored with the claim. Every action is audited.
+
+Claims over $1,000 need two approvals: the manager's moves the claim to pending_hr, then
+any HR admin gives the final one. An HR admin approving at the first step counts as both
+(they are HR). Either step can reject; the employee can cancel until the final decision.
 """
 
 from datetime import UTC, date, datetime
@@ -17,8 +21,10 @@ from hrm.auth.context import UserContext
 from hrm.db import repository as repo
 from hrm.db.models import ExpenseClaim, RequestStatus
 from hrm.integrations.currency import Conversion
-from hrm.workflows.expense_rules import ExpenseRuleError, check_expense
+from hrm.workflows.expense_rules import ExpenseRuleError, check_expense, needs_hr_sign_off
 from hrm.workflows.leave_rules import Violation
+
+OPEN = (RequestStatus.PENDING, RequestStatus.PENDING_HR)
 
 
 class RateLookup(Protocol):
@@ -51,6 +57,17 @@ class ExpenseView(BaseModel):
             is_company_property=c.is_company_property,
             status=c.status,
         )
+
+
+def pending_expense_approvals(session: Session, ctx: UserContext) -> list[ExpenseView]:
+    """Claims waiting for this user's decision: as their manager, and for HR admins also
+    every claim waiting for HR's approval (except their own)."""
+    claims = repo.pending_expenses_for_approver(session, ctx.employee_id)
+    if ctx.is_hr_admin:
+        claims += [
+            c for c in repo.expenses_waiting_for_hr(session) if c.employee_id != ctx.employee_id
+        ]
+    return [ExpenseView.of(c) for c in claims]
 
 
 class ExpenseOutcome(ExpenseView):
@@ -126,14 +143,14 @@ class ExpenseService:
         ]
 
     def pending_approvals(self) -> list[ExpenseView]:
-        """Claims waiting for this user's decision."""
-        claims = repo.pending_expenses_for_approver(self._session, self._ctx.employee_id)
-        return [ExpenseView.of(c) for c in claims]
+        return pending_expense_approvals(self._session, self._ctx)
 
     def approve(self, claim_id: int, note: str | None = None) -> ExpenseView:
-        return self._decide(
-            self._decidable(claim_id), RequestStatus.APPROVED, "expense.approve", note
-        )
+        claim = self._decidable(claim_id)
+        manager_step = claim.status is RequestStatus.PENDING and not self._ctx.is_hr_admin
+        if manager_step and needs_hr_sign_off(claim.amount_usd_cents):
+            return self._decide(claim, RequestStatus.PENDING_HR, "expense.approve_manager", note)
+        return self._decide(claim, RequestStatus.APPROVED, "expense.approve", note)
 
     def reject(self, claim_id: int, note: str) -> ExpenseView:
         return self._decide(
@@ -151,19 +168,23 @@ class ExpenseService:
 
     def _decidable(self, claim_id: int) -> ExpenseClaim:
         claim = repo.get_expense_claim(self._session, claim_id)
-        allowed = (
-            claim is not None
-            and claim.employee_id != self._ctx.employee_id
-            and (claim.approver_id == self._ctx.employee_id or self._ctx.is_hr_admin)
-        )
-        if claim is None or not allowed:
+        if claim is None or claim.employee_id == self._ctx.employee_id:
+            self._deny("expense.decide", claim_id)
+        is_approver = claim.approver_id == self._ctx.employee_id
+        if claim.status is RequestStatus.PENDING_HR and not self._ctx.is_hr_admin:
+            if is_approver:
+                raise ExpenseRuleError(
+                    [Violation("waiting_for_hr", "You approved this claim; HR decides it now.")]
+                )
+            self._deny("expense.decide", claim_id)
+        if not (is_approver or self._ctx.is_hr_admin):
             self._deny("expense.decide", claim_id)
         self._require_pending(claim)
         return claim
 
     @staticmethod
     def _require_pending(claim: ExpenseClaim) -> None:
-        if claim.status is not RequestStatus.PENDING:
+        if claim.status not in OPEN:
             raise ExpenseRuleError(
                 [Violation("not_pending", f"This claim is already {claim.status.value}.")]
             )
@@ -172,7 +193,8 @@ class ExpenseService:
         self, claim: ExpenseClaim, status: RequestStatus, action: str, note: str | None
     ) -> ExpenseView:
         claim.status = status
-        claim.decided_at = datetime.now(UTC)
+        if status not in OPEN:  # the manager's step is not the decision
+            claim.decided_at = datetime.now(UTC)
         self._session.flush()
         self._audit(action, claim, {"note": note} if note else {})
         return ExpenseView.of(claim)

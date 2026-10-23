@@ -75,6 +75,9 @@ class EmploymentType(enum.StrEnum):
 
 class RequestStatus(enum.StrEnum):
     PENDING = "pending"
+    # Expense claims only: the manager approved, HR still has to. Leave never uses it, and
+    # the leave table's CHECK constraint does not allow it (migration 0004).
+    PENDING_HR = "pending_hr"
     APPROVED = "approved"
     REJECTED = "rejected"
     CANCELLED = "cancelled"

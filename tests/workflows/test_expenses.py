@@ -97,6 +97,8 @@ def test_over_1000_usd_is_flagged_not_refused() -> None:
     assert not at_limit.is_company_property
     assert over.is_company_property
     assert any("company property" in w for w in over.warnings)
+    assert any("HR gives the final approval" in w for w in over.warnings)
+    assert not any("HR" in w for w in at_limit.warnings)
 
 
 # --- actions --------------------------------------------------------------------------------
@@ -146,6 +148,57 @@ def test_manager_approves_and_rejects_team_claims(db: Session) -> None:
 
     assert approved.status is RequestStatus.APPROVED
     assert rejected.status is RequestStatus.REJECTED
+
+
+def test_claims_over_1000_need_the_manager_then_hr(db: Session) -> None:
+    claim = as_user(db, "alice.park").submit("Laptop", 145_000, "USD", TODAY).id
+    bob, carol = as_user(db, "bob.chen"), as_user(db, "carol.reyes")
+
+    after_manager = bob.approve(claim, note="Needed for the new project")
+    stored = repo.get_expense_claim(db, claim)
+    assert after_manager.status is RequestStatus.PENDING_HR
+    assert stored is not None and stored.decided_at is None  # not decided yet
+    assert claim not in {c.id for c in bob.pending_approvals()}
+    assert claim in {c.id for c in carol.pending_approvals()}  # HR's queue
+
+    with pytest.raises(ExpenseRuleError) as caught:
+        bob.approve(claim)
+    assert codes(caught) == ["waiting_for_hr"]
+
+    final = carol.approve(claim)
+    assert final.status is RequestStatus.APPROVED
+    actions = list(db.scalars(select(AuditLog.action).where(AuditLog.entity_id == claim)))
+    assert actions[-2:] == ["expense.approve_manager", "expense.approve"]
+
+
+def test_hr_can_reject_after_the_manager_approved(db: Session) -> None:
+    claim = as_user(db, "alice.park").submit("Laptop", 145_000, "USD", TODAY).id
+    as_user(db, "bob.chen").approve(claim)
+
+    rejected = as_user(db, "carol.reyes").reject(claim, note="Over the laptop budget")
+
+    assert rejected.status is RequestStatus.REJECTED
+
+
+def test_only_hr_decides_a_claim_waiting_for_hr(db: Session) -> None:
+    claim = as_user(db, "alice.park").submit("Laptop", 145_000, "USD", TODAY).id
+    as_user(db, "bob.chen").approve(claim)
+
+    with pytest.raises(AccessDeniedError):
+        as_user(db, "hira.khan").approve(claim)
+
+
+def test_hr_approving_first_is_the_final_approval(db: Session) -> None:
+    claim = as_user(db, "alice.park").submit("Laptop", 145_000, "USD", TODAY).id
+    assert as_user(db, "carol.reyes").approve(claim).status is RequestStatus.APPROVED
+
+
+def test_a_claim_waiting_for_hr_can_still_be_cancelled(db: Session) -> None:
+    alice = as_user(db, "alice.park")
+    claim = alice.submit("Laptop", 145_000, "USD", TODAY).id
+    as_user(db, "bob.chen").approve(claim)
+
+    assert alice.cancel(claim).status is RequestStatus.CANCELLED
 
 
 def test_no_one_approves_their_own_claim_and_colleagues_cannot_decide(db: Session) -> None:

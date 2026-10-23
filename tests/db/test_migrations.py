@@ -53,6 +53,17 @@ def test_check_constraints_are_created(engine: Engine) -> None:
         )
 
 
+def test_only_expense_claims_can_wait_for_hr(engine: Engine) -> None:
+    upgrade(engine)
+
+    def status_check(table: str) -> str:
+        checks = inspect(engine).get_check_constraints(table)
+        return next(c["sqltext"] for c in checks if (c["name"] or "").endswith("_status"))
+
+    assert "pending_hr" in status_check("expense_claims")
+    assert "pending_hr" not in status_check("leave_requests")
+
+
 def test_reset_drops_the_version_table_too(engine: Engine) -> None:
     upgrade(engine)
     drop_everything(engine)

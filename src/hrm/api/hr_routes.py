@@ -165,6 +165,12 @@ def open_tickets(tickets: TicketsDep) -> list[TicketView]:
     return tickets.queue()
 
 
+@router.get("/employees", response_model=list[EmployeeView], tags=["employees"])
+def list_employees(access: AccessDep) -> list[EmployeeView]:
+    """HR admins only: all active employees (used to resolve names in the ticket queue)."""
+    return access.all_employees()
+
+
 @router.get("/employees/{employee_id}", response_model=EmployeeView, tags=["employees"])
 def employee(employee_id: int, access: AccessDep) -> EmployeeView:
     return access.employee(employee_id)

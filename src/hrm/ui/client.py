@@ -70,6 +70,9 @@ class ApiClient:
     def team(self) -> list[EmployeeView]:
         return [EmployeeView.model_validate(e) for e in self._call("GET", "/team")]
 
+    def all_employees(self) -> list[EmployeeView]:
+        return [EmployeeView.model_validate(e) for e in self._call("GET", "/employees")]
+
     def my_tickets(self) -> list[TicketView]:
         return [TicketView.model_validate(t) for t in self._call("GET", "/me/tickets")]
 

@@ -38,6 +38,16 @@ def get_employee(session: Session, employee_id: int) -> Employee | None:
     return session.get(Employee, employee_id)
 
 
+def all_employees(session: Session) -> list[Employee]:
+    return list(
+        session.scalars(
+            select(Employee)
+            .where(Employee.is_active)
+            .order_by(Employee.last_name, Employee.first_name)
+        )
+    )
+
+
 def direct_reports(session: Session, manager_id: int) -> list[Employee]:
     return list(
         session.scalars(

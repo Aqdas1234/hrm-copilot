@@ -214,7 +214,11 @@ def tickets_page() -> None:
     hr_admin = st.session_state.get("role") == Role.HR_ADMIN
     try:
         mine = api().my_tickets()
-        queue = api().ticket_queue() if hr_admin else []
+        if hr_admin:
+            queue = api().ticket_queue()
+            names = {e.id: e.name for e in api().all_employees()}
+        else:
+            queue, names = [], {}
     except ApiError as exc:
         show_error(exc)
         return
@@ -235,7 +239,7 @@ def tickets_page() -> None:
         if not queue:
             st.info("The queue is empty.")
         for t in queue:
-            ticket_card(t)
+            ticket_card(t, employee_name=names.get(t.employee_id))
             if t.status == "open":
                 st.button(
                     "Start working on it",
@@ -246,9 +250,12 @@ def tickets_page() -> None:
         st.caption("Close tickets through the assistant: it asks for the resolution.")
 
 
-def ticket_card(t: TicketView) -> None:
+def ticket_card(t: TicketView, *, employee_name: str | None = None) -> None:
     with st.container(border=True):
-        st.markdown(f"{STATUS_ICON[t.status]} **#{t.id}** · {t.category} · {t.status}")
+        header = f"{STATUS_ICON[t.status]} **#{t.id}** · {t.category} · {t.status}"
+        if employee_name:
+            header += f" · {employee_name}"
+        st.markdown(header)
         st.text(t.subject)  # plain text: written by an employee
         st.text(t.body)
         if t.resolution:

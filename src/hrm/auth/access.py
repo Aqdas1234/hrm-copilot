@@ -118,6 +118,12 @@ class HRAccess:
             EmployeeView.of(e) for e in repo.direct_reports(self._session, self._ctx.employee_id)
         ]
 
+    def all_employees(self) -> list[EmployeeView]:
+        """All active employees — HR admins only."""
+        if not self._ctx.is_hr_admin:
+            self._deny("employees.list", self._ctx.employee_id)
+        return [EmployeeView.of(e) for e in repo.all_employees(self._session)]
+
     def leave_requests(
         self, employee_id: int, *, status: RequestStatus | None = None
     ) -> list[LeaveRequestView]:

@@ -92,6 +92,8 @@ def login_page() -> None:
             return
         st.session_state.token = login.token
         st.session_state.role = login.role
+        st.session_state.conversations = ["default"]
+        st.session_state.conversation = "default"
         st.rerun()
 
 

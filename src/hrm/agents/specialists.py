@@ -70,6 +70,7 @@ SPECIALISTS: tuple[Specialist, ...] = (
                 "get_my_payslip",
                 "list_my_expense_claims",
                 "submit_expense_claim",
+                "cancel_my_expense_claim",
             }
         ),
         focus="You help the user with their own pay, payslips and expense claims.",

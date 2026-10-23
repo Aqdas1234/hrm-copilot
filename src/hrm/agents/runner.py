@@ -25,6 +25,7 @@ ACTION_SUMMARIES = {
     "submit_expense_claim": (
         "Submit an expense claim: {description}, {amount} {currency}, bought {purchase_date}"
     ),
+    "cancel_my_expense_claim": "Cancel your expense claim #{claim_id}",
     "decide_leave_request": "{decision} leave request #{request_id}",
     "decide_expense_claim": "{decision} expense claim #{claim_id}",
     "open_hr_ticket": "Open an HR ticket ({category}): {subject}",

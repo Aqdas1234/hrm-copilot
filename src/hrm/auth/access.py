@@ -138,9 +138,7 @@ class HRAccess:
 
     def salary(self, employee_id: int, *, reason: str, on: date | None = None) -> SalaryView:
         """Audited every time; `reason` is recorded (e.g. "annual review")."""
-        if not self.can_view_salary(employee_id) or not repo.get_employee(
-            self._session, employee_id
-        ):
+        if not self.can_view_salary(employee_id):
             self._deny("salary.read", employee_id)
         comp = repo.current_compensation(self._session, employee_id, on=on or date.today())
         if comp is None:

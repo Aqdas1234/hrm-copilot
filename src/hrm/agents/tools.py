@@ -224,6 +224,17 @@ def _self_service_tools(deps: ToolDeps) -> list[BaseTool]:
         )
 
     @tool(parse_docstring=True)
+    @committed
+    @_safe
+    def cancel_my_expense_claim(claim_id: int) -> str:
+        """Cancel one of your own pending expense claims. Changes data.
+
+        Args:
+            claim_id: The id from list_my_expense_claims.
+        """
+        return _json(expenses.cancel(claim_id))
+
+    @tool(parse_docstring=True)
     @_safe
     def get_my_payslip(year: int, month: int) -> str:
         """Your payslip for a past month: gross, tax and net pay.
@@ -257,7 +268,13 @@ def _self_service_tools(deps: ToolDeps) -> list[BaseTool]:
         """
         return _json(tickets.mine(TicketStatus(status) if status else None))
 
-    _mark_writes(request_leave, cancel_my_leave_request, submit_expense_claim, open_hr_ticket)
+    _mark_writes(
+        request_leave,
+        cancel_my_leave_request,
+        submit_expense_claim,
+        cancel_my_expense_claim,
+        open_hr_ticket,
+    )
     return [
         get_my_profile,
         get_my_salary,
@@ -269,6 +286,7 @@ def _self_service_tools(deps: ToolDeps) -> list[BaseTool]:
         cancel_my_leave_request,
         list_my_expense_claims,
         submit_expense_claim,
+        cancel_my_expense_claim,
         get_my_payslip,
         open_hr_ticket,
         list_my_tickets,

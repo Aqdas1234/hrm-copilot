@@ -77,7 +77,7 @@ class FakeBackend:
             return call
 
         names = ("login", "me", "team", "approvals", "send", "confirm", "conversation", "ask")
-        for name in (*names, "my_tickets", "ticket_queue"):
+        for name in (*names, "my_tickets", "ticket_queue", "all_employees"):
             monkeypatch.setattr(ApiClient, name, method(name))
 
     def do_login(self, email: str, password: str) -> Login:
@@ -90,6 +90,9 @@ class FakeBackend:
 
     def do_ticket_queue(self) -> list[TicketView]:
         return [TICKET]
+
+    def do_all_employees(self) -> list[EmployeeView]:
+        return [ALICE, BOB]
 
     def do_me(self) -> EmployeeView:
         return BOB

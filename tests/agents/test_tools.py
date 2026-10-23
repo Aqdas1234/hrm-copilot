@@ -26,6 +26,7 @@ SELF_TOOLS = {
     "cancel_my_leave_request",
     "list_my_expense_claims",
     "submit_expense_claim",
+    "cancel_my_expense_claim",
     "get_my_payslip",
     "open_hr_ticket",
     "list_my_tickets",
@@ -43,6 +44,7 @@ WRITE_TOOLS = {
     "request_leave",
     "cancel_my_leave_request",
     "submit_expense_claim",
+    "cancel_my_expense_claim",
     "decide_leave_request",
     "decide_expense_claim",
 }

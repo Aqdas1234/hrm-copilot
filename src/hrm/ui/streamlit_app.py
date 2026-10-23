@@ -65,12 +65,16 @@ def sidebar() -> str:
             me = st.session_state.me
             st.markdown(f"**{me.name}**  \n{me.job_title}")
             conversations: list[str] = st.session_state.setdefault("conversations", [_new_id()])
-            st.selectbox(
+            current = st.session_state.get("conversation", conversations[0])
+            if current not in conversations:
+                current = conversations[0]
+            selected = st.selectbox(
                 "Conversation",
                 conversations,
-                key="conversation",
+                index=conversations.index(current),
                 format_func=lambda c: f"Conversation {conversations.index(c) + 1}",
             )
+            st.session_state.conversation = selected
             st.button("New conversation", on_click=new_conversation)
             st.button("Log out", on_click=logout)
     return str(page)

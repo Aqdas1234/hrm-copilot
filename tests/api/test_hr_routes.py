@@ -180,6 +180,8 @@ def test_manager_sees_team_and_approvals_but_not_salaries(
         "Hira Khan",
     }
     assert len(client.get("/team/approvals", headers=headers).json()) == 2
+    claims = client.get("/team/expense-approvals", headers=headers).json()
+    assert [(c["description"], c["currency"]) for c in claims] == [("External monitor", "PKR")]
     assert client.get(f"/employees/{alice}", headers=headers).status_code == 200
     assert (
         client.get(f"/employees/{alice}/salary?reason=raise planning", headers=headers).status_code

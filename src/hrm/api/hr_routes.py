@@ -22,6 +22,7 @@ from hrm.auth.tokens import InvalidTokenError, create_token, user_id_from_token
 from hrm.core.errors import ConfigurationError
 from hrm.db import repository as repo
 from hrm.db.models import Role, User
+from hrm.workflows.expenses import ExpenseView
 from hrm.workflows.tickets import TicketService, TicketView
 
 router = APIRouter()
@@ -152,6 +153,15 @@ def my_team(access: AccessDep) -> list[EmployeeView]:
 @router.get("/team/approvals", response_model=list[LeaveRequestView], tags=["team"])
 def pending_approvals(access: AccessDep) -> list[LeaveRequestView]:
     return access.pending_approvals()
+
+
+@router.get("/team/expense-approvals", response_model=list[ExpenseView], tags=["team"])
+def pending_expense_approvals(
+    session: SessionDep, ctx: Annotated[UserContext, Depends(current_user)]
+) -> list[ExpenseView]:
+    """Expense claims waiting for the caller's decision (they are the assigned approver)."""
+    claims = repo.pending_expenses_for_approver(session, ctx.employee_id)
+    return [ExpenseView.of(c) for c in claims]
 
 
 @router.get("/me/tickets", response_model=list[TicketView], tags=["me"])

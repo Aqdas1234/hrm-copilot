@@ -13,6 +13,7 @@ from hrm.api.schemas import AskResponse
 from hrm.auth.access import EmployeeView, LeaveRequestView
 from hrm.db.models import RequestStatus, Role, TicketCategory, TicketStatus
 from hrm.ui.client import ApiClient, ApiError, Login
+from hrm.workflows.expenses import ExpenseView
 from hrm.workflows.tickets import TicketView
 from tests.test_ui_client import ASK_OK
 
@@ -79,7 +80,13 @@ class FakeBackend:
             return call
 
         names = ("login", "me", "team", "approvals", "send", "confirm", "conversation", "ask")
-        extra = ("my_tickets", "ticket_queue", "all_employees", "conversations")
+        extra = (
+            "my_tickets",
+            "ticket_queue",
+            "all_employees",
+            "conversations",
+            "expense_approvals",
+        )
         for name in (*names, *extra, "delete_conversation"):
             monkeypatch.setattr(ApiClient, name, method(name))
 
@@ -129,6 +136,21 @@ class FakeBackend:
         self.confirmed.append(approved)
         self.pending = None
         return AgentReply(kind="answer", text="ok")
+
+    def do_expense_approvals(self) -> list[ExpenseView]:
+        return [
+            ExpenseView(
+                id=9,
+                employee_id=3,
+                description="External monitor",
+                amount_cents=6_500_000,
+                currency="PKR",
+                amount_usd_cents=23_400,
+                purchase_date=date(2026, 10, 2),
+                is_company_property=False,
+                status=RequestStatus.PENDING,
+            )
+        ]
 
     def do_conversations(self) -> list[ConversationSummary]:
         return self.saved
@@ -283,6 +305,17 @@ def test_approvals_show_names_and_go_through_the_assistant(backend: FakeBackend)
 
     assert backend.sent == ["Approve leave request #6."]
     assert app.session_state["page"] == "Assistant"
+
+
+def test_expense_claims_are_shown_for_approval_too(backend: FakeBackend) -> None:
+    app = logged_in("Approvals")
+    assert "expense claim #9" in markdown(app)
+    assert "65,000.00 PKR (≈ 234.00 USD)" in markdown(app)
+    assert "External monitor" in [t.value for t in app.text]
+
+    next(b for b in app.button if b.key == "reject-expense-9").click().run()
+
+    assert backend.sent == ["Reject expense claim #9."]
 
 
 # --- tickets -------------------------------------------------------------------------------

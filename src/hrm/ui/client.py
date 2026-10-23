@@ -15,6 +15,7 @@ from hrm.api.schemas import AskResponse
 from hrm.auth.access import EmployeeView, LeaveRequestView
 from hrm.db.models import Role
 from hrm.rag.models import Category
+from hrm.workflows.expenses import ExpenseView
 from hrm.workflows.tickets import TicketView
 
 REQUEST_ID_HEADER = "X-Request-ID"
@@ -81,6 +82,10 @@ class ApiClient:
 
     def approvals(self) -> list[LeaveRequestView]:
         return [LeaveRequestView.model_validate(r) for r in self._call("GET", "/team/approvals")]
+
+    def expense_approvals(self) -> list[ExpenseView]:
+        path = "/team/expense-approvals"
+        return [ExpenseView.model_validate(c) for c in self._call("GET", path)]
 
     def send(self, conversation_id: str, message: str) -> AgentReply:
         path = f"/chat/{conversation_id}/messages"

@@ -182,11 +182,12 @@ def approvals_page() -> None:
     st.subheader("Waiting for your approval")
     try:
         requests = api().approvals()
+        claims = api().expense_approvals()
         names = {e.id: e.name for e in api().team()}
     except ApiError as exc:
         show_error(exc)
         return
-    if not requests:
+    if not requests and not claims:
         st.info("Nothing is waiting for your approval.")
         return
 
@@ -194,27 +195,47 @@ def approvals_page() -> None:
     for r in requests:
         with st.container(border=True):
             st.markdown(
-                f"**{names.get(r.employee_id, f'Employee #{r.employee_id}')}** · "
-                f"leave request #{r.id} · {r.leave_type}  \n"
+                f"**{_name(names, r.employee_id)}** · leave request #{r.id} · {r.leave_type}  \n"
                 f"{r.start_date} → {r.end_date} · {r.working_days:g} working days"
             )
             if r.reason:
                 st.caption(r.reason)
-            approve, reject = st.columns(2)
-            approve.button(
-                "Approve",
-                key=f"approve-{r.id}",
-                on_click=ask_assistant,
-                args=(f"Approve leave request #{r.id}.",),
-                use_container_width=True,
+            decision_buttons(f"leave request #{r.id}", key=f"leave-{r.id}")
+    for c in claims:
+        with st.container(border=True):
+            amount = f"{c.amount_cents / 100:,.2f} {c.currency}"
+            if c.currency != "USD":
+                amount += f" (≈ {c.amount_usd_cents / 100:,.2f} USD)"
+            st.markdown(
+                f"**{_name(names, c.employee_id)}** · expense claim #{c.id}  \n"
+                f"{_md(amount)} · bought {c.purchase_date}"
             )
-            reject.button(
-                "Reject",
-                key=f"reject-{r.id}",
-                on_click=ask_assistant,
-                args=(f"Reject leave request #{r.id}.",),
-                use_container_width=True,
-            )
+            st.text(c.description)  # plain text: written by an employee
+            if c.is_company_property:
+                st.caption(_md("Over $1,000: becomes company property if it is a physical item."))
+            decision_buttons(f"expense claim #{c.id}", key=f"expense-{c.id}")
+
+
+def decision_buttons(item: str, *, key: str) -> None:
+    approve, reject = st.columns(2)
+    approve.button(
+        "Approve",
+        key=f"approve-{key}",
+        on_click=ask_assistant,
+        args=(f"Approve {item}.",),
+        use_container_width=True,
+    )
+    reject.button(
+        "Reject",
+        key=f"reject-{key}",
+        on_click=ask_assistant,
+        args=(f"Reject {item}.",),
+        use_container_width=True,
+    )
+
+
+def _name(names: dict[int, str], employee_id: int) -> str:
+    return names.get(employee_id, f"Employee #{employee_id}")
 
 
 def ask_assistant(message: str) -> None:

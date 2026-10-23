@@ -25,14 +25,14 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from hrm.analytics.service import AnalyticsService
-from hrm.auth.access import EmployeeView, HRAccess
+from hrm.auth.access import EmployeeView, HRAccess, LeaveRequestView
 from hrm.auth.context import UserContext
 from hrm.core.errors import HRMError
 from hrm.db import repository as repo
 from hrm.db.models import RequestStatus, Role, TicketStatus
 from hrm.integrations.payroll import PayrollClient
 from hrm.rag.tool import PolicySearch, make_policy_search_tool
-from hrm.workflows.expenses import ExpenseService, RateLookup
+from hrm.workflows.expenses import ExpenseService, ExpenseView, RateLookup
 from hrm.workflows.leave import HolidayLookup, LeaveService
 from hrm.workflows.tickets import TicketService
 
@@ -311,11 +311,12 @@ def _team_tools(deps: ToolDeps) -> list[BaseTool]:
     @tool(parse_docstring=True)
     @_safe
     def list_pending_approvals() -> str:
-        """Leave requests and expense claims waiting for your decision."""
+        """Leave requests and expense claims waiting for your decision, with each
+        employee's name."""
         return _json(
             {
-                "leave_requests": access.pending_approvals(),
-                "expense_claims": expenses.pending_approvals(),
+                "leave_requests": _named(deps.session, access.pending_approvals()),
+                "expense_claims": _named(deps.session, expenses.pending_approvals()),
             }
         )
 
@@ -538,6 +539,16 @@ def _text(value: str | None, limit: int) -> str | None:
     if len(value) > limit:
         raise ToolInputError(f"Please keep it under {limit} characters.")
     return value or None
+
+
+def _named(session: Session, items: list[LeaveRequestView] | list[ExpenseView]) -> list[Any]:
+    """Add the employee's name, so answers say "Alice Park", not "employee 8"."""
+    named = []
+    for item in items:
+        employee = repo.get_employee(session, item.employee_id)
+        name = employee.full_name if employee else None
+        named.append({**item.model_dump(mode="json"), "employee_name": name})
+    return named
 
 
 def _find_employee(employees: list[EmployeeView], query: str) -> EmployeeView:

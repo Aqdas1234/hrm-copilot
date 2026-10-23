@@ -201,6 +201,8 @@ def test_manager_sees_and_decides_pending_approvals(db: Session) -> None:
     decided = call(bob, "decide_leave_request", request_id=request_id, decision="approve")
 
     assert {"leave_requests", "expense_claims"} <= pending.keys()
+    assert {r["employee_name"] for r in pending["leave_requests"]} == {"Alice Park", "Hira Khan"}
+    assert [c["employee_name"] for c in pending["expense_claims"]] == ["Hira Khan"]
     assert decided["status"] == RequestStatus.APPROVED.value
 
 
